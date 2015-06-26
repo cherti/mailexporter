@@ -11,7 +11,6 @@ import(
 	"math/rand"
 //	"os"
 	"errors"
-//	"time"
 )
 
 // configuration implementation temporary
@@ -19,6 +18,7 @@ import(
 var conf_path string = "./conf"
 var content_length int = 7
 var ErrMailNotFound = errors.New("no corresponding mail found")
+var mailCheckTimeout = 10*time.Second
 
 type Config struct {
 	Server string
@@ -126,16 +126,34 @@ func main() {
 
 	send(c, content)
 
-	mails := parse_mails(c)
 
-	mail, err := filter(content, mails)
+	timeout := time.After(mailCheckTimeout)
+	//content = "shabaem" // to test timeouts
 
-	if err == nil {
-		delmail(c, mail)
+	seekingMail := true
+	for seekingMail {
+		select {
+		default:
+			fmt.Println("getting mail...")
+			mails := parse_mails(c)
+
+			mail, err := filter(content, mails)
+
+			if err == nil {
+				delmail(c, mail)
+				seekingMail = false
+			}
+
+		case <- timeout:
+			fmt.Println("getting mail timed out")
+			seekingMail = false
+		}
+
+		time.Sleep(5*time.Millisecond)
+
 	}
 
 	elapsed := time.Since(start)
 	fmt.Println(elapsed)
-
 
 }
