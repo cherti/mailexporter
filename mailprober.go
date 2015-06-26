@@ -9,12 +9,16 @@ import(
 	"bytes"
 	"time"
 	"math/rand"
+//	"os"
+	"errors"
+//	"time"
 )
 
 // configuration implementation temporary
 
 var conf_path string = "./conf"
 var content_length int = 7
+var ErrMailNotFound = errors.New("no corresponding mail found")
 
 type Config struct {
 	Server string
@@ -77,16 +81,18 @@ func send(c Config, msg string) {
 	}
 }
 
-func filter(msg string, mails []email) {
+func filter(msg string, mails []email) (email, error) {
 
 	stuff := make([]byte, content_length)
 
 	for _, m := range mails {
 		m.Content.Body.Read(stuff)
 		if string(stuff) == msg {
-			fmt.Println("match:", m.Filename)
+			return m, nil
 		}
 	}
+
+	return email{}, ErrMailNotFound
 }
 
 func randstring(length int) string {
@@ -103,6 +109,11 @@ func randstring(length int) string {
 	return string(stuff)
 }
 
+func delmail(c Config, m email) {
+	//os.Remove(c.Detectiondir + "/" + m.Filename)
+	fmt.Println("rm ", c.Detectiondir + "/" + m.Filename)
+}
+
 
 func main() {
 	start := time.Now()
@@ -117,7 +128,11 @@ func main() {
 
 	mails := parse_mails(c)
 
-	filter(content, mails)
+	mail, err := filter(content, mails)
+
+	if err == nil {
+		delmail(c, mail)
+	}
 
 	elapsed := time.Since(start)
 	fmt.Println(elapsed)
