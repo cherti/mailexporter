@@ -8,6 +8,7 @@ import(
 	"net/mail"
 	"bytes"
 	"time"
+	"math/rand"
 )
 
 // configuration implementation temporary
@@ -88,6 +89,21 @@ func filter(msg string, mails []email) {
 	}
 }
 
+func randstring(length int) string {
+	// does also return unprintable characters in returned string,
+	// which is actually appreciated to implicitly monitor that
+	// mail gets through unchanged
+
+	stuff := make([]byte, content_length)
+
+	for i := range stuff {
+		stuff[i] = byte(rand.Int())
+	}
+
+	return string(stuff)
+}
+
+
 func main() {
 	start := time.Now()
 
@@ -95,13 +111,16 @@ func main() {
 
 	c := parse_conf(conf_path)
 
-	send(c, "shaboom")
+	content := randstring(content_length)
+
+	send(c, content)
 
 	mails := parse_mails(c)
 
-	filter("shaboom", mails)
+	filter(content, mails)
 
 	elapsed := time.Since(start)
 	fmt.Println(elapsed)
+
 
 }
