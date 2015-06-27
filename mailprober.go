@@ -19,6 +19,7 @@ var conf_path string = "./conf"
 var content_length int = 7
 var ErrMailNotFound = errors.New("no corresponding mail found")
 var mailCheckTimeout = 10*time.Second
+var monitoringInterval = 1*time.Minute
 
 type Config struct {
 	Server string
@@ -115,20 +116,14 @@ func delmail(c Config, m email) {
 }
 
 
-func main() {
-	start := time.Now()
-
-	fmt.Println(string([]byte("shaboom")))
-
-	c := parse_conf(conf_path)
+func probe(c Config) {
 
 	content := randstring(content_length)
+	content = "shaboom"
 
 	send(c, content)
 
-
 	timeout := time.After(mailCheckTimeout)
-	//content = "shabaem" // to test timeouts
 
 	seekingMail := true
 	for seekingMail {
@@ -152,6 +147,22 @@ func main() {
 		time.Sleep(5*time.Millisecond)
 
 	}
+}
+
+func monitor(c Config) {
+	for {
+		probe(c)
+		time.Sleep(monitoringInterval)
+	}
+}
+
+
+func main() {
+	start := time.Now()
+
+	c := parse_conf(conf_path)
+
+	go monitor(c)
 
 	elapsed := time.Since(start)
 	fmt.Println(elapsed)
