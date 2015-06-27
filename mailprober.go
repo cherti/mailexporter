@@ -11,15 +11,16 @@ import(
 	"math/rand"
 //	"os"
 	"errors"
+	"sync"
 )
-
-// configuration implementation temporary
 
 var conf_path string = "./conf"
 var content_length int = 7
 var ErrMailNotFound = errors.New("no corresponding mail found")
 var mailCheckTimeout = 10*time.Second
 var monitoringInterval = 1*time.Minute
+var numberConfigOptions = 7
+var antiInterferenceInterval = 15*time.Second
 
 type Config struct {
 	Server string
@@ -36,12 +37,22 @@ type email struct {
 	Content *mail.Message
 }
 
-func parse_conf(path string) Config {
+func parse_conf(path string) []Config {
 
 	content, _ := ioutil.ReadFile(path)
+
 	sc := strings.Split(string(content), "\n")
-	c := Config{sc[0], sc[1], sc[2], sc[3], sc[4], sc[5], sc[6]}
-	return c
+
+	configcount := len(sc) / numberConfigOptions
+	configs := make([]Config, configcount)
+
+	for i := 0; i < configcount; i++ {
+		j := i*numberConfigOptions
+		configs[i] = Config{sc[j+0], sc[j+1], sc[j+2], sc[j+3], sc[j+4], sc[j+5], sc[j+6]}
+	}
+	fmt.Println("confnumber:", len(configs))
+
+	return configs
 
 }
 
@@ -74,6 +85,7 @@ func parse_mails(c Config) []email {
 
 func send(c Config, msg string) {
 
+	fmt.Println("sending mail")
 	a := smtp.PlainAuth("", c.Login, c.Password, c.Server)
 	err := smtp.SendMail(c.Server + ":" + c.Port, a, c.From, []string{c.To}, []byte(msg))
 
@@ -135,6 +147,7 @@ func probe(c Config) {
 			mail, err := filter(content, mails)
 
 			if err == nil {
+				fmt.Println("mail found")
 				delmail(c, mail)
 				seekingMail = false
 			}
@@ -149,22 +162,33 @@ func probe(c Config) {
 	}
 }
 
-func monitor(c Config) {
+func monitor(c Config, wg *sync.WaitGroup) {
 	for {
 		probe(c)
 		time.Sleep(monitoringInterval)
 	}
+	wg.Done()
 }
 
 
 func main() {
 	start := time.Now()
 
-	c := parse_conf(conf_path)
+	configs := parse_conf(conf_path)
+	wg := new(sync.WaitGroup)
+	wg.Add(len(configs))
 
-	go monitor(c)
+	for i, c := range configs {
+		fmt.Println("starting monitor for config", i)
+		go monitor(c, wg)
+
+		// keep a timedelta between monitoring jobs to avoid interference
+		time.Sleep(antiInterferenceInterval)
+	}
 
 	elapsed := time.Since(start)
 	fmt.Println(elapsed)
+
+	wg.Wait()
 
 }
