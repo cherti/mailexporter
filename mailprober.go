@@ -9,7 +9,7 @@ import(
 	"bytes"
 	"time"
 	"math/rand"
-//	"os"
+	"os"
 	"errors"
 	"sync"
 )
@@ -123,7 +123,7 @@ func randstring(length int) string {
 }
 
 func delmail(c Config, m email) {
-	//os.Remove(c.Detectiondir + "/" + m.Filename)
+	os.Remove(c.Detectiondir + "/" + m.Filename)
 	fmt.Println("rm ", c.Detectiondir + "/" + m.Filename)
 }
 
@@ -141,7 +141,7 @@ func probe(c Config) {
 	for seekingMail {
 		select {
 		default:
-			fmt.Println("getting mail...")
+			//fmt.Println("getting mail...")
 			mails := parse_mails(c)
 
 			mail, err := filter(content, mails)
