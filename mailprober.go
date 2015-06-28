@@ -55,7 +55,7 @@ func parse_conf(path string) []config {
 		j := i * numberConfigOptions
 		configs[i] = config{sc[j+0], sc[j+1], sc[j+2], sc[j+3], sc[j+4], sc[j+5], sc[j+6]}
 	}
-	fmt.Println("confnumber:", len(configs))
+	//fmt.Println("confnumber:", len(configs))
 
 	return configs
 
@@ -73,6 +73,7 @@ func parse_mails(c config) []email {
 	// loop over all non-dir-files and try to parse mails
 	// return a slice of those files that are parsable as mail
 	for _, f := range files {
+
 		if !f.IsDir() {
 
 			// try parsing
@@ -94,7 +95,7 @@ func parse_mails(c config) []email {
 // send email over SMTP-server specified in config
 func send(c config, msg string) {
 
-	fmt.Println("sending mail")
+	//fmt.Println("sending mail")
 	a := smtp.PlainAuth("", c.login, c.passphrase, c.server)
 	err := smtp.SendMail(c.server+":"+c.port, a, c.from, []string{c.to}, []byte(msg))
 
@@ -138,7 +139,7 @@ func randstring(length int) string {
 // delete the given mail to not leave an untidied maildir
 func delmail(c config, m email) {
 	os.Remove(c.detectiondir + "/" + m.filename)
-	fmt.Println("rm ", c.detectiondir+"/"+m.filename)
+	//fmt.Println("rm ", c.detectiondir+"/"+m.filename)
 }
 
 // probe if mail gets through (main monitoring component)
@@ -165,13 +166,13 @@ func probe(c config) {
 			mail, err := filter(content, mails)
 
 			if err == nil {
-				fmt.Println("mail found")
+				//fmt.Println("mail found")
 				delmail(c, mail)
 				seekingMail = false
 			}
 
 		case <-timeout:
-			fmt.Println("getting mail timed out")
+			//fmt.Println("getting mail timed out")
 			seekingMail = false
 		}
 
