@@ -12,20 +12,36 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"net/http"
+
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 // global compiled configuration parameters
-
 var conf_path string = "./conf"
 var content_length int = 7
 var ErrMailNotFound = errors.New("no corresponding mail found")
 var mailCheckTimeout = 10 * time.Second
 var monitoringInterval = 1 * time.Minute
-var numberConfigOptions = 7
+var numberConfigOptions = 8
 var antiInterferenceInterval = 15 * time.Second
+
+
+// prometheus-instrumentation
+var deliver_ok = prometheus.NewGaugeVec(
+	prometheus.GaugeOpts{
+		Name: "mail_deliver_success",
+		Help: "indicatior whether last mail was delivered successfully",
+	},
+	[]string{"configname"})
+
+func init() {
+	prometheus.MustRegister(deliver_ok)
+}
 
 // holds a configuration of external server to send test mails
 type config struct {
+	name         string
 	server       string
 	port         string
 	login        string
@@ -53,7 +69,7 @@ func parse_conf(path string) []config {
 
 	for i := 0; i < configcount; i++ {
 		j := i * numberConfigOptions
-		configs[i] = config{sc[j+0], sc[j+1], sc[j+2], sc[j+3], sc[j+4], sc[j+5], sc[j+6]}
+		configs[i] = config{sc[j+0], sc[j+1], sc[j+2], sc[j+3], sc[j+4], sc[j+5], sc[j+6], sc[j+7]}
 	}
 	//fmt.Println("confnumber:", len(configs))
 
@@ -169,11 +185,13 @@ func probe(c config) {
 				//fmt.Println("mail found")
 				delmail(c, mail)
 				seekingMail = false
+				deliver_ok.WithLabelValues(c.name).Set(1)
 			}
 
 		case <-timeout:
 			//fmt.Println("getting mail timed out")
 			seekingMail = false
+			deliver_ok.WithLabelValues(c.name).Set(0)
 		}
 
 		time.Sleep(5 * time.Millisecond)
@@ -191,6 +209,8 @@ func monitor(c config, wg *sync.WaitGroup) {
 }
 
 func main() {
+
+
 	start := time.Now()
 
 	configs := parse_conf(conf_path)
@@ -209,6 +229,10 @@ func main() {
 
 	elapsed := time.Since(start)
 	fmt.Println(elapsed)
+
+	fmt.Println("starting HTTP-endpoint")
+	http.Handle("/metrics", prometheus.Handler())
+	http.ListenAndServe(":8080", nil)
 
 	// wait for goroutines to exit
 	// otherwise main would terminate and the goroutines would be killed
