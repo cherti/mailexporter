@@ -22,33 +22,33 @@ var monitoringInterval = 1 * time.Minute
 var numberConfigOptions = 7
 var antiInterferenceInterval = 15 * time.Second
 
-type Config struct {
-	Server       string
-	Port         string
-	Login        string
-	Password     string
-	From         string
-	To           string
-	Detectiondir string
+type config struct {
+	server       string
+	port         string
+	login        string
+	passphrase   string
+	from         string
+	to           string
+	detectiondir string
 }
 
 type email struct {
-	Filename string
-	Content  *mail.Message
+	filename string
+	content  *mail.Message
 }
 
-func parse_conf(path string) []Config {
+func parse_conf(path string) []config {
 
 	content, _ := ioutil.ReadFile(path)
 
 	sc := strings.Split(string(content), "\n")
 
 	configcount := len(sc) / numberConfigOptions
-	configs := make([]Config, configcount)
+	configs := make([]config, configcount)
 
 	for i := 0; i < configcount; i++ {
 		j := i * numberConfigOptions
-		configs[i] = Config{sc[j+0], sc[j+1], sc[j+2], sc[j+3], sc[j+4], sc[j+5], sc[j+6]}
+		configs[i] = config{sc[j+0], sc[j+1], sc[j+2], sc[j+3], sc[j+4], sc[j+5], sc[j+6]}
 	}
 	fmt.Println("confnumber:", len(configs))
 
@@ -56,9 +56,9 @@ func parse_conf(path string) []Config {
 
 }
 
-func parse_mails(c Config) []email {
+func parse_mails(c config) []email {
 	// get entries of directory
-	files, _ := ioutil.ReadDir(c.Detectiondir)
+	files, _ := ioutil.ReadDir(c.detectiondir)
 
 	// allocate space to store the parsed mails
 	mails := make([]email, 0, len(files))
@@ -67,7 +67,7 @@ func parse_mails(c Config) []email {
 		if !f.IsDir() {
 
 			// try parsing
-			content, _ := ioutil.ReadFile(c.Detectiondir + "/" + f.Name())
+			content, _ := ioutil.ReadFile(c.detectiondir + "/" + f.Name())
 			mail, err := mail.ReadMessage(bytes.NewReader(content))
 
 			// save if parsable
@@ -82,11 +82,11 @@ func parse_mails(c Config) []email {
 	return mails
 }
 
-func send(c Config, msg string) {
+func send(c config, msg string) {
 
 	fmt.Println("sending mail")
-	a := smtp.PlainAuth("", c.Login, c.Password, c.Server)
-	err := smtp.SendMail(c.Server+":"+c.Port, a, c.From, []string{c.To}, []byte(msg))
+	a := smtp.PlainAuth("", c.login, c.passphrase, c.server)
+	err := smtp.SendMail(c.server+":"+c.port, a, c.from, []string{c.to}, []byte(msg))
 
 	if err != nil {
 		fmt.Println(err)
@@ -98,7 +98,7 @@ func filter(msg string, mails []email) (email, error) {
 	stuff := make([]byte, content_length)
 
 	for _, m := range mails {
-		m.Content.Body.Read(stuff)
+		m.content.Body.Read(stuff)
 		if string(stuff) == msg {
 			return m, nil
 		}
@@ -121,12 +121,12 @@ func randstring(length int) string {
 	return string(stuff)
 }
 
-func delmail(c Config, m email) {
-	os.Remove(c.Detectiondir + "/" + m.Filename)
-	fmt.Println("rm ", c.Detectiondir+"/"+m.Filename)
+func delmail(c config, m email) {
+	os.Remove(c.detectiondir + "/" + m.filename)
+	fmt.Println("rm ", c.detectiondir+"/"+m.filename)
 }
 
-func probe(c Config) {
+func probe(c config) {
 
 	content := randstring(content_length)
 	content = "shaboom"
@@ -160,7 +160,7 @@ func probe(c Config) {
 	}
 }
 
-func monitor(c Config, wg *sync.WaitGroup) {
+func monitor(c config, wg *sync.WaitGroup) {
 	for {
 		probe(c)
 		time.Sleep(monitoringInterval)
