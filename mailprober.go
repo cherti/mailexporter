@@ -12,6 +12,8 @@ import (
 	"os"
 	"sync"
 	"time"
+	"flag"
+	"strconv"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"gopkg.in/yaml.v2"
@@ -20,14 +22,17 @@ import (
 
 var globalconf config
 
-// global compiled configuration parameters
-var conf_path string = "./config.yml"
-var content_length int = 7
+// global configuration parameters
+var conf_path = flag.String("conf_path", "/etc/mailprober.conf", "config-file to use")
+
 var ErrMailNotFound = errors.New("no corresponding mail found")
-var mailCheckTimeout = 10 * time.Second
-var monitoringInterval = 1 * time.Minute
-var numberConfigOptions = 8
-var antiInterferenceInterval = 15 * time.Second
+
+var content_length int = 7
+
+// to be filled during main()
+var monitoringInterval time.Duration
+var startupOffsetTime time.Duration
+var mailCheckTimeout time.Duration
 
 // prometheus-instrumentation
 var deliver_ok = prometheus.NewGaugeVec(
@@ -47,6 +52,11 @@ type config struct {
 	Key_path string
 	Auth_user string
 	Auth_pw string
+
+	Monitoring_interval string
+	Startup_offset_time string
+	Mail_check_timeout string
+
 	Servers []map[string]string
 }
 
@@ -69,6 +79,36 @@ func parse_conf(path string) error {
 	if err != nil {
 		return err
 	}
+
+
+	// yaml-lib in use cannot parse ints unfortunately, just strings
+	// therefore this is for the moment the least PITA-solution
+	// as we want to have at least a properly parsable config
+
+	// convert to int
+	var monitoringInterval_int, startupOffsetTime_int, mailCheckTimeout_int int
+	errs := make([]error, 3)
+	monitoringInterval_int, errs[0] = strconv.Atoi(globalconf.Monitoring_interval)
+	startupOffsetTime_int, errs[1] = strconv.Atoi(globalconf.Startup_offset_time)
+	mailCheckTimeout_int, errs[2] = strconv.Atoi(globalconf.Mail_check_timeout)
+
+	parsingErrors := false
+	for _, e := range errs {
+		if e != nil {
+			fmt.Println(err)
+			parsingErrors = true
+		}
+	}
+
+	if parsingErrors {
+		return errors.New("parsing errors in configuration")
+	}
+
+	// now convert to duration
+	monitoringInterval = time.Duration(monitoringInterval_int) * time.Minute
+	startupOffsetTime  = time.Duration(startupOffsetTime_int) * time.Second
+	mailCheckTimeout   = time.Duration(mailCheckTimeout_int) * time.Second
+
 
 	return nil
 
@@ -217,12 +257,15 @@ func main() {
 
 	start := time.Now()
 
-	err := parse_conf(conf_path)
+	flag.Parse()
+
+	err := parse_conf(*conf_path)
 
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
+
 
 	wg := new(sync.WaitGroup)
 	wg.Add(len(globalconf.Servers))
@@ -233,7 +276,7 @@ func main() {
 		go monitor(c, wg)
 
 		// keep a timedelta between monitoring jobs to avoid strong interference
-		time.Sleep(antiInterferenceInterval)
+		time.Sleep(startupOffsetTime)
 	}
 
 
