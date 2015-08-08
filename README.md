@@ -23,7 +23,7 @@ Success in indicated by a value of `1` of the metric `mail_deliver_success`, fai
     
     # actually build and run
     git clone https://github.com/cherti/mailexporter.git
-    go build -i mailexporter.go
+    go build mailexporter.go
     ./mailexporter
 
 
