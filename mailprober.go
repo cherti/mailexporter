@@ -22,8 +22,9 @@ import (
 
 var globalconf config
 
-// global configuration parameters
 var conf_path = flag.String("conf_path", "/etc/mailprober.conf", "config-file to use")
+var useTLS = flag.Bool("tls", true, "use TLS for metrics-endpoint")
+var useAuth = flag.Bool("auth", true, "use HTTP-Basic-Auth for metrics-endpoint")
 
 var ErrMailNotFound = errors.New("no corresponding mail found")
 
@@ -279,15 +280,23 @@ func main() {
 		time.Sleep(startupOffsetTime)
 	}
 
-
-	authenticator := auth.NewBasicAuthenticator("prometheus", Secret)
-
 	elapsed := time.Since(start)
 	fmt.Println(elapsed)
 
 	fmt.Println("starting HTTP-endpoint")
-	http.HandleFunc("/metrics", auth.JustCheck(authenticator, prometheus.Handler().ServeHTTP))
-	err = http.ListenAndServeTLS(":8080", globalconf.Crt_path, globalconf.Key_path,  nil)
+	if *useAuth {
+		authenticator := auth.NewBasicAuthenticator("prometheus", Secret)
+		http.HandleFunc("/metrics", auth.JustCheck(authenticator, prometheus.Handler().ServeHTTP))
+	} else {
+		http.Handle("/metrics", prometheus.Handler())
+	}
+
+
+	if *useTLS {
+		err = http.ListenAndServeTLS(":8080", globalconf.Crt_path, globalconf.Key_path,  nil)
+	} else {
+		err = http.ListenAndServe(":8080",  nil)
+	}
 
 	if err != nil {
 		fmt.Println(err)
