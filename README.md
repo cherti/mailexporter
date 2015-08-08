@@ -36,7 +36,8 @@ Success in indicated by a value of `1` of the metric `mail_deliver_success`, fai
 ## Configuration
 
 By defaut, mailexporter reads `/etc/mailexporter.conf` as its configfile. This can be changed via the command line option `-config-file`.
-Also, by default, it uses HTTP basic auth on the metrics-endpoint as well as TLS. If desired, both can be disabled by using the `-auth=false` or the `-tls=false` commandline opitons respectively.
+Also, by default, it uses HTTP basic auth on the metrics-endpoint as well as TLS.
+If desired, both can be disabled by using the `-auth=false` or the `-tls=false` commandline options respectively.
 
 Further configuration is done via the configuration file.
 
