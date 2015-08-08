@@ -4,7 +4,7 @@ Metrics Exporter for Mailserver for the [Prometheus](www.prometheus.io)-monitori
 This exporter can be used for mailsetups based on Maildir. Other storage formats are currently not supported.
 
 It tries to send e-mails in specified time intervals over the specified SMTP-servers and verifies delivery into the specified according maildirs.
-Success in indicated by a value of `1` of the metric `mail_deliver_success`, failure is indicated by `0`.
+Success is indicated by a value of `1` of the metric `mail_deliver_success`, failure is indicated by `0`.
 
 
 ## Exported metrics
