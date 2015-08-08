@@ -53,6 +53,7 @@ type config struct {
 	Key_path string
 	Auth_user string
 	Auth_pw string
+	Http_port string
 
 	Monitoring_interval string
 	Startup_offset_time string
@@ -283,6 +284,7 @@ func main() {
 	elapsed := time.Since(start)
 	fmt.Println(elapsed)
 
+
 	fmt.Println("starting HTTP-endpoint")
 	if *useAuth {
 		authenticator := auth.NewBasicAuthenticator("prometheus", Secret)
@@ -293,10 +295,11 @@ func main() {
 
 
 	if *useTLS {
-		err = http.ListenAndServeTLS(":8080", globalconf.Crt_path, globalconf.Key_path,  nil)
+		err = http.ListenAndServeTLS(":"+globalconf.Http_port, globalconf.Crt_path, globalconf.Key_path,  nil)
 	} else {
-		err = http.ListenAndServe(":8080",  nil)
+		err = http.ListenAndServe(":"+globalconf.Http_port,  nil)
 	}
+
 
 	if err != nil {
 		fmt.Println(err)
