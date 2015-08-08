@@ -54,6 +54,7 @@ type config struct {
 	Auth_user string
 	Auth_pw string
 	Http_port string
+	Http_endpoint string
 
 	Monitoring_interval string
 	Startup_offset_time string
@@ -284,9 +285,9 @@ func main() {
 	fmt.Println("starting HTTP-endpoint")
 	if *useAuth {
 		authenticator := auth.NewBasicAuthenticator("prometheus", Secret)
-		http.HandleFunc("/metrics", auth.JustCheck(authenticator, prometheus.Handler().ServeHTTP))
+		http.HandleFunc(globalconf.Http_endpoint, auth.JustCheck(authenticator, prometheus.Handler().ServeHTTP))
 	} else {
-		http.Handle("/metrics", prometheus.Handler())
+		http.Handle(globalconf.Http_endpoint, prometheus.Handler())
 	}
 
 
