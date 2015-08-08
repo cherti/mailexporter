@@ -22,7 +22,7 @@ import (
 
 var globalconf config
 
-var conf_path = flag.String("config-file", "/etc/prometheus/mailexporter.conf", "config-file to use")
+var conf_path = flag.String("config-file", "./mailexporter.conf", "config-file to use")
 var useTLS = flag.Bool("tls", true, "use TLS for metrics-endpoint")
 var useAuth = flag.Bool("auth", true, "use HTTP-Basic-Auth for metrics-endpoint")
 
