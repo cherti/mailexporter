@@ -6,26 +6,25 @@ import (
 	"fmt"
 	"io/ioutil"
 	"math/rand"
+	"net/http"
 	"net/mail"
 	"net/smtp"
 	"os"
-	"strings"
 	"sync"
 	"time"
-	"net/http"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"gopkg.in/yaml.v2"
 )
 
 // global compiled configuration parameters
-var conf_path string = "./conf"
+var conf_path string = "./config.yml"
 var content_length int = 7
 var ErrMailNotFound = errors.New("no corresponding mail found")
 var mailCheckTimeout = 10 * time.Second
 var monitoringInterval = 1 * time.Minute
 var numberConfigOptions = 8
 var antiInterferenceInterval = 15 * time.Second
-
 
 // prometheus-instrumentation
 var deliver_ok = prometheus.NewGaugeVec(
@@ -41,14 +40,7 @@ func init() {
 
 // holds a configuration of external server to send test mails
 type config struct {
-	name         string
-	server       string
-	port         string
-	login        string
-	passphrase   string
-	from         string
-	to           string
-	detectiondir string
+	Servers []map[string]string
 }
 
 // holds an email with the corresponding file name
@@ -57,31 +49,32 @@ type email struct {
 	content  *mail.Message
 }
 
-// very basic configuration parser
-func parse_conf(path string) []config {
+func parse_conf(path string) config {
 
-	content, _ := ioutil.ReadFile(path)
+	content, err := ioutil.ReadFile(path)
 
-	sc := strings.Split(string(content), "\n")
-
-	configcount := len(sc) / numberConfigOptions
-	configs := make([]config, configcount)
-
-	for i := 0; i < configcount; i++ {
-		j := i * numberConfigOptions
-		configs[i] = config{sc[j+0], sc[j+1], sc[j+2], sc[j+3], sc[j+4], sc[j+5], sc[j+6], sc[j+7]}
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
 	}
-	//fmt.Println("confnumber:", len(configs))
 
-	return configs
+	var conf config
+	err = yaml.Unmarshal(content, &conf)
+
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+
+	return conf
 
 }
 
 // looks into the specified detectiondir to find and parse all mails in that dir
-func parse_mails(c config) []email {
+func parse_mails(c map[string]string) []email {
 
 	// get entries of directory
-	files, _ := ioutil.ReadDir(c.detectiondir)
+	files, _ := ioutil.ReadDir(c["Detectiondir"])
 
 	// allocate space to store the parsed mails
 	mails := make([]email, 0, len(files))
@@ -93,7 +86,7 @@ func parse_mails(c config) []email {
 		if !f.IsDir() {
 
 			// try parsing
-			content, _ := ioutil.ReadFile(c.detectiondir + "/" + f.Name())
+			content, _ := ioutil.ReadFile(c["Detectiondir"] + "/" + f.Name())
 			mail, err := mail.ReadMessage(bytes.NewReader(content))
 
 			// save if parsable
@@ -109,11 +102,11 @@ func parse_mails(c config) []email {
 }
 
 // send email over SMTP-server specified in config
-func send(c config, msg string) {
+func send(c map[string]string, msg string) {
 
 	//fmt.Println("sending mail")
-	a := smtp.PlainAuth("", c.login, c.passphrase, c.server)
-	err := smtp.SendMail(c.server+":"+c.port, a, c.from, []string{c.to}, []byte(msg))
+	a := smtp.PlainAuth("", c["Login"], c["Passphrase"], c["Server"])
+	err := smtp.SendMail(c["Server"]+":"+c["Port"], a, c["From"], []string{c["To"]}, []byte(msg))
 
 	if err != nil {
 		fmt.Println(err)
@@ -153,13 +146,13 @@ func randstring(length int) string {
 }
 
 // delete the given mail to not leave an untidied maildir
-func delmail(c config, m email) {
-	os.Remove(c.detectiondir + "/" + m.filename)
-	//fmt.Println("rm ", c.detectiondir+"/"+m.filename)
+func delmail(c map[string]string, m email) {
+	os.Remove(c["Detectiondir"] + "/" + m.filename)
+	//fmt.Println("rm ", c["Detectiondir"]+"/"+m.filename)
 }
 
 // probe if mail gets through (main monitoring component)
-func probe(c config) {
+func probe(c map[string]string) {
 
 	content := randstring(content_length)
 
@@ -185,13 +178,13 @@ func probe(c config) {
 				//fmt.Println("mail found")
 				delmail(c, mail)
 				seekingMail = false
-				deliver_ok.WithLabelValues(c.name).Set(1)
+				deliver_ok.WithLabelValues(c["Name"]).Set(1)
 			}
 
 		case <-timeout:
 			//fmt.Println("getting mail timed out")
 			seekingMail = false
-			deliver_ok.WithLabelValues(c.name).Set(0)
+			deliver_ok.WithLabelValues(c["Name"]).Set(0)
 		}
 
 		time.Sleep(5 * time.Millisecond)
@@ -200,7 +193,7 @@ func probe(c config) {
 }
 
 // probe every couple of δt if mail still gets through
-func monitor(c config, wg *sync.WaitGroup) {
+func monitor(c map[string]string, wg *sync.WaitGroup) {
 	for {
 		probe(c)
 		time.Sleep(monitoringInterval)
@@ -210,16 +203,15 @@ func monitor(c config, wg *sync.WaitGroup) {
 
 func main() {
 
-
 	start := time.Now()
 
-	configs := parse_conf(conf_path)
+	conf := parse_conf(conf_path)
 
 	wg := new(sync.WaitGroup)
-	wg.Add(len(configs))
+	wg.Add(len(conf.Servers))
 
 	// now fire up the monitoring jobs
-	for i, c := range configs {
+	for i, c := range conf.Servers {
 		fmt.Println("starting monitoring for config", i)
 		go monitor(c, wg)
 
