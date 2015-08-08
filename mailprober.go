@@ -43,6 +43,8 @@ func init() {
 
 // holds a configuration of external server to send test mails
 type config struct {
+	Crt_path string
+	Key_path string
 	Auth_user string
 	Auth_pw string
 	Servers []map[string]string
@@ -242,7 +244,11 @@ func main() {
 
 	fmt.Println("starting HTTP-endpoint")
 	http.HandleFunc("/metrics", auth.JustCheck(authenticator, prometheus.Handler().ServeHTTP))
-	http.ListenAndServe(":8080", nil)
+	err = http.ListenAndServeTLS(":8080", globalconf.Crt_path, globalconf.Key_path,  nil)
+
+	if err != nil {
+		fmt.Println(err)
+	}
 
 	// wait for goroutines to exit
 	// otherwise main would terminate and the goroutines would be killed
