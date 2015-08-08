@@ -1,0 +1,42 @@
+# TLS-Certs
+crt_path: /path/to/cert.crt
+key_path: /path/to/cert.key
+
+# HTTP-Basic-Auth-Credentials (in hashed form, see htpasswd)
+# defaulting to "prometheus" & "hello" here
+auth_user: "prometheus"
+auth_pw: "$apr1$Q9DfPfFo$xxVkL02CMMonCEERocsEp0"
+
+# port and endpoint for http-endpoint
+http_port: 8080
+http_endpoint: '/metrics'
+
+# time in minutes between two monitoring-attempts
+monitoring_interval: 10
+
+# Time in seconds between server-setups-startups
+# this is to avoid doing everything at once, even while it is all concurrent
+startup_offset_time: 15
+
+# Time until mail must have arrived after sending for positive outcome
+mail_check_timeout: 10
+
+
+servers:
+    - Name: localhost                     # name for internal prometheus-metrics
+      Server: localhost                   # SMTP-server to use
+      Port: 587                           # port to use on Server for SMTP
+      Login: monitoring                   # login on server
+      Passphrase: 123password             # SMTP-login-password
+      From: monitoring@helper1.com        # From-Header of monitoring-Mail (e.g. for filtering)
+      To: monitoring@example.com          # address to deliver to
+      Detectiondir: /home/me/Maildir/new  # Maildir in which to look for monitoring-mail
+
+    - Name: helper1
+      Server: mail.helper1.org
+      Port: 587
+      Login: monitoring@helper1.org
+      Passphrase: password123
+      From: monitoring@helper1.org
+      To: monitoring@example.com
+      Detectiondir: /home/me/Maildir/new
