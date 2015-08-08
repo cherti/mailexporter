@@ -15,7 +15,10 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"gopkg.in/yaml.v2"
+	auth "github.com/abbot/go-http-auth"
 )
+
+var globalconf config
 
 // global compiled configuration parameters
 var conf_path string = "./config.yml"
@@ -40,6 +43,8 @@ func init() {
 
 // holds a configuration of external server to send test mails
 type config struct {
+	Auth_user string
+	Auth_pw string
 	Servers []map[string]string
 }
 
@@ -49,24 +54,21 @@ type email struct {
 	content  *mail.Message
 }
 
-func parse_conf(path string) config {
+func parse_conf(path string) error {
 
 	content, err := ioutil.ReadFile(path)
 
 	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
+		return err
 	}
 
-	var conf config
-	err = yaml.Unmarshal(content, &conf)
+	err = yaml.Unmarshal(content, &globalconf)
 
 	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
+		return err
 	}
 
-	return conf
+	return nil
 
 }
 
@@ -201,17 +203,30 @@ func monitor(c map[string]string, wg *sync.WaitGroup) {
 	wg.Done()
 }
 
+// secret for basic http-auth
+func Secret(user, realm string) string {
+	if user == globalconf.Auth_user {
+		return globalconf.Auth_pw
+	}
+	return ""
+}
+
 func main() {
 
 	start := time.Now()
 
-	conf := parse_conf(conf_path)
+	err := parse_conf(conf_path)
+
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
 
 	wg := new(sync.WaitGroup)
-	wg.Add(len(conf.Servers))
+	wg.Add(len(globalconf.Servers))
 
 	// now fire up the monitoring jobs
-	for i, c := range conf.Servers {
+	for i, c := range globalconf.Servers {
 		fmt.Println("starting monitoring for config", i)
 		go monitor(c, wg)
 
@@ -219,11 +234,14 @@ func main() {
 		time.Sleep(antiInterferenceInterval)
 	}
 
+
+	authenticator := auth.NewBasicAuthenticator("prometheus", Secret)
+
 	elapsed := time.Since(start)
 	fmt.Println(elapsed)
 
 	fmt.Println("starting HTTP-endpoint")
-	http.Handle("/metrics", prometheus.Handler())
+	http.HandleFunc("/metrics", auth.JustCheck(authenticator, prometheus.Handler().ServeHTTP))
 	http.ListenAndServe(":8080", nil)
 
 	// wait for goroutines to exit
