@@ -182,7 +182,7 @@ func filter(msg string, mails []email) (email, error) {
 // mail gets through unchanged
 func randstring(length int) string {
 
-	stuff := make([]byte, content_length)
+	stuff := make([]byte, length)
 
 	for i := range stuff {
 		stuff[i] = byte(rand.Int())
@@ -201,9 +201,6 @@ func delmail(c map[string]string, m email) {
 func probe(c map[string]string) {
 
 	content := randstring(content_length)
-
-	// constant, non-random string for testing purposes
-	content = "shaboom"
 
 	send(c, content)
 
@@ -257,9 +254,12 @@ func Secret(user, realm string) string {
 
 func main() {
 
-	start := time.Now()
-
 	flag.Parse()
+
+	// seed the RNG, otherwise we would have same randomness on every startup
+	// which should not, but might in worst case interfere with leftover-mails
+	// from earlier starts of the binary
+	rand.Seed(time.Now().Unix())
 
 	err := parse_conf(*conf_path)
 
@@ -273,17 +273,13 @@ func main() {
 	wg.Add(len(globalconf.Servers))
 
 	// now fire up the monitoring jobs
-	for i, c := range globalconf.Servers {
-		fmt.Println("starting monitoring for config", i)
+	for _, c := range globalconf.Servers {
+		fmt.Println("starting monitoring for config", c["Name"])
 		go monitor(c, wg)
 
 		// keep a timedelta between monitoring jobs to avoid strong interference
 		time.Sleep(startupOffsetTime)
 	}
-
-	elapsed := time.Since(start)
-	fmt.Println(elapsed)
-
 
 	fmt.Println("starting HTTP-endpoint")
 	if *useAuth {
@@ -300,13 +296,12 @@ func main() {
 		err = http.ListenAndServe(":"+globalconf.Http_port,  nil)
 	}
 
-
 	if err != nil {
 		fmt.Println(err)
 	}
 
 	// wait for goroutines to exit
-	// otherwise main would terminate and the goroutines would be killed
+	// otherwise main would terminate and the goroutines monitoring would be killed
 	wg.Wait()
 
 }
