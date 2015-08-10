@@ -14,6 +14,7 @@ import (
 	"time"
 	"flag"
 	"strconv"
+	"strings"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"gopkg.in/yaml.v2"
@@ -28,7 +29,7 @@ var useAuth = flag.Bool("auth", true, "use HTTP-Basic-Auth for metrics-endpoint"
 
 var ErrMailNotFound = errors.New("no corresponding mail found")
 
-var content_length int = 7
+var contentLength int = 40
 
 // to be filled during main()
 var monitoringInterval time.Duration
@@ -43,8 +44,16 @@ var deliver_ok = prometheus.NewGaugeVec(
 	},
 	[]string{"configname"})
 
+var last_mail_deliver_time = prometheus.NewGaugeVec(
+	prometheus.GaugeOpts{
+		Name: "last_mail_deliver_time",
+		Help: "timestamp of detection of last correctly received testmail",
+	},
+	[]string{"configname"})
+
 func init() {
 	prometheus.MustRegister(deliver_ok)
+	prometheus.MustRegister(last_mail_deliver_time)
 }
 
 // holds a configuration of external server to send test mails
@@ -67,6 +76,8 @@ type config struct {
 type email struct {
 	filename string
 	content  *mail.Message
+	t_sent int64
+	t_recv int64
 }
 
 func parse_conf(path string) error {
@@ -120,6 +131,9 @@ func parse_conf(path string) error {
 // looks into the specified detectiondir to find and parse all mails in that dir
 func parse_mails(c map[string]string) []email {
 
+	// to date the mails found
+	t := time.Now().Unix()
+
 	// get entries of directory
 	files, _ := ioutil.ReadDir(c["Detectiondir"])
 
@@ -137,8 +151,9 @@ func parse_mails(c map[string]string) []email {
 			mail, err := mail.ReadMessage(bytes.NewReader(content))
 
 			// save if parsable
+			// (non-parsable mails are not sent by us (or broken) and therefore not needed
 			if err == nil {
-				mails = append(mails, email{f.Name(), mail})
+				mails = append(mails, email{f.Name(), mail, 0, t})
 			}
 
 		}
@@ -164,11 +179,19 @@ func send(c map[string]string, msg string) {
 // correct text in it
 func filter(msg string, mails []email) (email, error) {
 
-	stuff := make([]byte, content_length)
+	stuff := make([]byte, contentLength)
 
 	for _, m := range mails {
 		m.content.Body.Read(stuff)
-		if string(stuff) == msg {
+		payload := string(stuff)
+
+
+		if payload == msg {
+			// mail found!
+
+			_, _, timestamp := decomposePayload(payload)
+			m.t_sent = timestamp
+
 			return m, nil
 		}
 	}
@@ -189,7 +212,9 @@ func randstring(length int) string {
 		stuff[i] = byte(rand.Int())
 	}
 
-	return string(stuff)
+	// ensure no ":" are in the returned string
+	// as ":" is used later as a field splitter
+	return strings.Replace(string(stuff), "-", "X", -1)
 }
 
 // delete the given mail to not leave an untidied maildir
@@ -198,12 +223,40 @@ func delmail(c map[string]string, m email) {
 	//fmt.Println("rm ", c["Detectiondir"]+"/"+m.filename)
 }
 
+func composePayload(name string, unixtimestamp int64) string {
+	timestampstr := strconv.FormatInt(unixtimestamp, 10)
+	remainingLength := contentLength - len(name) - len(timestampstr) - 2 // 2 for two delimiters
+
+	// now get the token to have a unique token and use it to pad to full contentLength
+	token := randstring(remainingLength)
+
+	payload := name + "-" + token + "-" + timestampstr
+	//fmt.Println("composed payload:", payload)
+
+	return payload
+}
+
+func decomposePayload(payload string) (string, string, int64) {
+
+	//fmt.Println("payload to decompose:", payload)
+
+	decomp := strings.Split(payload, "-")
+
+	extractedUnixtime, _ := strconv.ParseInt(decomp[2], 10, 64)
+
+	// strconv-err does not need to be checked, because if we decompose the
+	// payload, we already matched it before including the unix timestamp
+
+	return decomp[0], decomp[1], extractedUnixtime
+}
+
 // probe if mail gets through (main monitoring component)
 func probe(c map[string]string) {
 
-	content := randstring(content_length)
+	//token := randstring(content_length)
 
-	send(c, content)
+	payload := composePayload(c["Name"], time.Now().Unix())
+	send(c, payload)
 
 	timeout := time.After(mailCheckTimeout)
 
@@ -216,17 +269,18 @@ func probe(c map[string]string) {
 			//fmt.Println("getting mail...")
 			mails := parse_mails(c)
 
-			mail, err := filter(content, mails)
+			mail, err := filter(payload, mails)
 
 			if err == nil {
 				//fmt.Println("mail found")
-				delmail(c, mail)
 				seekingMail = false
 				deliver_ok.WithLabelValues(c["Name"]).Set(1)
+				last_mail_deliver_time.WithLabelValues(c["Name"]).Set(float64(mail.t_recv))
+				delmail(c, mail)
 			}
 
 		case <-timeout:
-			//fmt.Println("getting mail timed out")
+			fmt.Println("getting mail timed out")
 			seekingMail = false
 			deliver_ok.WithLabelValues(c["Name"]).Set(0)
 		}
