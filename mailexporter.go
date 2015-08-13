@@ -19,6 +19,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"gopkg.in/yaml.v2"
 	auth "github.com/abbot/go-http-auth"
+	"gopkg.in/fsnotify.v1"
 )
 
 var globalconf config
@@ -28,6 +29,7 @@ var useTLS = flag.Bool("tls", true, "use TLS for metrics-endpoint")
 var useAuth = flag.Bool("auth", true, "use HTTP-Basic-Auth for metrics-endpoint")
 
 var ErrMailNotFound = errors.New("no corresponding mail found")
+var ErrNotOurDept = errors.New("no mail of ours")
 
 var contentLength int = 40
 
@@ -74,10 +76,11 @@ type config struct {
 
 // holds an email with the corresponding file name
 type email struct {
-	filename string
-	content  *mail.Message
-	t_sent int64
-	t_recv int64
+	Filename string
+	Name string
+	Token string
+	T_sent int64
+	T_recv int64
 }
 
 func parse_conf(path string) error {
@@ -128,41 +131,6 @@ func parse_conf(path string) error {
 
 }
 
-// looks into the specified detectiondir to find and parse all mails in that dir
-func parse_mails(c map[string]string) []email {
-
-	// to date the mails found
-	t := time.Now().Unix()
-
-	// get entries of directory
-	files, _ := ioutil.ReadDir(c["Detectiondir"])
-
-	// allocate space to store the parsed mails
-	mails := make([]email, 0, len(files))
-
-	// loop over all non-dir-files and try to parse mails
-	// return a slice of those files that are parsable as mail
-	for _, f := range files {
-
-		if !f.IsDir() {
-
-			// try parsing
-			content, _ := ioutil.ReadFile(c["Detectiondir"] + "/" + f.Name())
-			mail, err := mail.ReadMessage(bytes.NewReader(content))
-
-			// save if parsable
-			// (non-parsable mails are not sent by us (or broken) and therefore not needed
-			if err == nil {
-				mails = append(mails, email{f.Name(), mail, 0, t})
-			}
-
-		}
-
-	}
-
-	return mails
-}
-
 // send email over SMTP-server specified in config
 func send(c map[string]string, msg string) {
 
@@ -173,30 +141,6 @@ func send(c map[string]string, msg string) {
 	if err != nil {
 		fmt.Println(err)
 	}
-}
-
-// take a bunch of mails and filter for the one that actually has the
-// correct text in it
-func filter(msg string, mails []email) (email, error) {
-
-	stuff := make([]byte, contentLength)
-
-	for _, m := range mails {
-		m.content.Body.Read(stuff)
-		payload := string(stuff)
-
-
-		if payload == msg {
-			// mail found!
-
-			_, _, timestamp := decomposePayload(payload)
-			m.t_sent = timestamp
-
-			return m, nil
-		}
-	}
-
-	return email{}, ErrMailNotFound
 }
 
 // returns a random string to prepare the send mail for finding
@@ -219,11 +163,11 @@ func randstring(length int) string {
 
 // delete the given mail to not leave an untidied maildir
 func delmail(c map[string]string, m email) {
-	os.Remove(c["Detectiondir"] + "/" + m.filename)
-	//fmt.Println("rm ", c["Detectiondir"]+"/"+m.filename)
+	os.Remove(c["Detectiondir"] + "/" + m.Filename)
+	//fmt.Println("rm ", c["Detectiondir"]+"/"+m.Filename)
 }
 
-func composePayload(name string, unixtimestamp int64) string {
+func composePayload(name string, unixtimestamp int64) (string, string) {
 	timestampstr := strconv.FormatInt(unixtimestamp, 10)
 	remainingLength := contentLength - len(name) - len(timestampstr) - 2 // 2 for two delimiters
 
@@ -233,67 +177,90 @@ func composePayload(name string, unixtimestamp int64) string {
 	payload := name + "-" + token + "-" + timestampstr
 	//fmt.Println("composed payload:", payload)
 
-	return payload
+	return payload, token
 }
 
-func decomposePayload(payload string) (string, string, int64) {
+func decomposePayload(payload []byte) (string, string, int64, error) {
+
+	// is the length correct?
+	if len(payload) != contentLength {
+		return "", "", -1, ErrNotOurDept
+	}
 
 	//fmt.Println("payload to decompose:", payload)
 
-	decomp := strings.Split(payload, "-")
+	decomp := strings.Split(string(payload), "-")
 
-	extractedUnixtime, _ := strconv.ParseInt(decomp[2], 10, 64)
+	// is it correctly parsable?
+	if len(decomp) != 3 {
+		//fmt.Println("no fitting decomp")
+		return "", "", -1, ErrNotOurDept
+	}
 
-	// strconv-err does not need to be checked, because if we decompose the
-	// payload, we already matched it before including the unix timestamp
+	extractedUnixtime, err := strconv.ParseInt(decomp[2], 10, 64)
 
-	return decomp[0], decomp[1], extractedUnixtime
+	// is the last one a unix-timestamp?
+	if err != nil {
+		//fmt.Println("unix-timestamp-parse-error")
+		return "", "", -1, ErrNotOurDept
+	}
+
+	return decomp[0], decomp[1], extractedUnixtime, nil
+}
+
+func lateMail(m email) {
+	//fmt.Println(":: this is a late mail")
+	return
 }
 
 // probe if mail gets through (main monitoring component)
-func probe(c map[string]string) {
+func probe(c map[string]string, reportChans map[string]chan email) {
 
 	//token := randstring(content_length)
 
-	payload := composePayload(c["Name"], time.Now().Unix())
+	payload, token := composePayload(c["Name"], time.Now().Unix())
 	send(c, payload)
 
 	timeout := time.After(mailCheckTimeout)
 
-	// now wait for mail to arrive
-	// subject to change, might get changed to fsnotify or so
+	// "for seekingMail" is needed to account for mails that are coming late
+	// otherwise, a late mail would trigger the first case and stop us from
+	// being able to detect the mail we are waiting for
 	seekingMail := true
 	for seekingMail {
 		select {
-		default:
+		case mail := <-reportChans[c["Name"]]:
 			//fmt.Println("getting mail...")
-			mails := parse_mails(c)
 
-			mail, err := filter(payload, mails)
+			if mail.Token == token {
+				// we obtained the expected mail
 
-			if err == nil {
-				//fmt.Println("mail found")
-				seekingMail = false
 				deliver_ok.WithLabelValues(c["Name"]).Set(1)
-				last_mail_deliver_time.WithLabelValues(c["Name"]).Set(float64(mail.t_recv))
+				last_mail_deliver_time.WithLabelValues(c["Name"]).Set(float64(mail.T_recv))
 				delmail(c, mail)
+				seekingMail = false
+
+			} else {
+				// it was another mail with unfitting token, probably late
+				lateMail(mail)
 			}
 
 		case <-timeout:
-			fmt.Println("getting mail timed out")
-			seekingMail = false
+			//fmt.Println("getting mail timed out")
 			deliver_ok.WithLabelValues(c["Name"]).Set(0)
+			seekingMail = false
 		}
 
-		time.Sleep(5 * time.Millisecond)
+		//time.Sleep(5 * time.Millisecond)
 
 	}
 }
 
 // probe every couple of δt if mail still gets through
-func monitor(c map[string]string, wg *sync.WaitGroup) {
+func monitor(c map[string]string, wg *sync.WaitGroup, reportChans map[string]chan email) {
+	fmt.Println("started monitoring for config", c["Name"])
 	for {
-		probe(c)
+		probe(c, reportChans)
 		time.Sleep(monitoringInterval)
 	}
 	wg.Done()
@@ -306,6 +273,52 @@ func Secret(user, realm string) string {
 	}
 	return ""
 }
+
+func detectMail(watcher *fsnotify.Watcher, reportChans map[string]chan email) {
+
+		fmt.Println("started mail-detection")
+
+		for {
+			select {
+			case event := <-watcher.Events:
+				if event.Op&fsnotify.Create == fsnotify.Create {
+					mail, err := parseMail(event.Name)
+
+					if err == nil {
+						reportChans[mail.Name] <- mail
+					}
+				}
+			case err := <-watcher.Errors:
+				fmt.Println("watcher-error:", err)
+			}
+		}
+
+}
+
+func parseMail(path string) (email, error) {
+
+	// to date the mails found
+	t := time.Now().Unix()
+
+	// try parsing
+	content, _ := ioutil.ReadFile(path)
+	mail, err := mail.ReadMessage(bytes.NewReader(content))
+
+	payload := make([]byte, contentLength)
+	mail.Body.Read(payload)
+
+	name, token, unixtime, err := decomposePayload(payload)
+
+	// return if parsable
+	// (non-parsable mails are not sent by us (or broken) and therefore not needed
+	if err == nil {
+		return email{path, name, token, unixtime, t}, nil
+	} else {
+		return email{}, ErrNotOurDept
+	}
+
+}
+
 
 func main() {
 
@@ -324,15 +337,33 @@ func main() {
 	}
 
 
+	fswatcher, err := fsnotify.NewWatcher()
+
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+
+	defer fswatcher.Close()
+
+	reportChans := make(map[string]chan email)
+	for _, c := range globalconf.Servers {
+		fswatcher.Add(c["Detectiondir"])  // deduplication is done within fsnotify
+		reportChans[c["Name"]] = make(chan email)
+		//fmt.Println("adding path to watcher:", c["Detectiondir"])
+	}
+
+	go detectMail(fswatcher, reportChans)
+
 	wg := new(sync.WaitGroup)
 	wg.Add(len(globalconf.Servers))
 
 	// now fire up the monitoring jobs
 	for _, c := range globalconf.Servers {
-		fmt.Println("starting monitoring for config", c["Name"])
-		go monitor(c, wg)
+		go monitor(c, wg, reportChans)
 
-		// keep a timedelta between monitoring jobs to avoid strong interference
+		// keep a timedelta between monitoring jobs to reduce interference
+		// (although that shouldn't be an issue)
 		time.Sleep(startupOffsetTime)
 	}
 
