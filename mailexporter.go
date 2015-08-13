@@ -53,9 +53,17 @@ var last_mail_deliver_time = prometheus.NewGaugeVec(
 	},
 	[]string{"configname"})
 
+var late_mails = prometheus.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "late_mails",
+		Help: "number of mails received after timeout",
+	},
+	[]string{"configname"})
+
 func init() {
 	prometheus.MustRegister(deliver_ok)
 	prometheus.MustRegister(last_mail_deliver_time)
+	prometheus.MustRegister(late_mails)
 }
 
 // holds a configuration of external server to send test mails
@@ -209,8 +217,8 @@ func decomposePayload(payload []byte) (string, string, int64, error) {
 }
 
 func lateMail(m email) {
-	//fmt.Println(":: this is a late mail")
-	return
+	//fmt.Println("got late mail via", m.Name)
+	late_mails.WithLabelValues(m.Name).Inc()
 }
 
 // probe if mail gets through (main monitoring component)
