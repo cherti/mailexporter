@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"errors"
+	"flag"
 	"fmt"
 	"io/ioutil"
 	"math/rand"
@@ -10,33 +11,59 @@ import (
 	"net/mail"
 	"net/smtp"
 	"os"
-	"sync"
-	"time"
-	"flag"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
-	"gopkg.in/yaml.v2"
 	auth "github.com/abbot/go-http-auth"
+	"github.com/prometheus/client_golang/prometheus"
 	"gopkg.in/fsnotify.v1"
+	"gopkg.in/yaml.v2"
 )
 
 var globalconf config
+var contentLength int = 40 // length of payload for probing-mails
 
-var conf_path = flag.String("config-file", "./mailexporter.conf", "config-file to use")
-var useTLS = flag.Bool("tls", true, "use TLS for metrics-endpoint")
-var useAuth = flag.Bool("auth", true, "use HTTP-Basic-Auth for metrics-endpoint")
-
-var ErrMailNotFound = errors.New("no corresponding mail found")
-var ErrNotOurDept = errors.New("no mail of ours")
-
-var contentLength int = 40
-
+// these hold further configuration not hold by the config-struct
 // to be filled during main()
 var monitoringInterval time.Duration
 var startupOffsetTime time.Duration
 var mailCheckTimeout time.Duration
+
+// holds a configuration of external server to send test mails
+type config struct {
+	Crt_path      string
+	Key_path      string
+	Auth_user     string
+	Auth_pw       string
+	Http_port     string
+	Http_endpoint string
+
+	Monitoring_interval string
+	Startup_offset_time string
+	Mail_check_timeout  string
+
+	Servers []map[string]string
+}
+
+// cli-flags
+var conf_path = flag.String("config-file", "./mailexporter.conf", "config-file to use")
+var useTLS = flag.Bool("tls", true, "use TLS for metrics-endpoint")
+var useAuth = flag.Bool("auth", true, "use HTTP-Basic-Auth for metrics-endpoint")
+
+// errors
+var ErrMailNotFound = errors.New("no corresponding mail found")
+var ErrNotOurDept = errors.New("no mail of ours")
+
+// holds information about probing-email with the corresponding file name
+type email struct {
+	Filename string
+	Name     string
+	Token    string
+	T_sent   int64
+	T_recv   int64
+}
 
 // prometheus-instrumentation
 var deliver_ok = prometheus.NewGaugeVec(
@@ -56,7 +83,7 @@ var last_mail_deliver_time = prometheus.NewGaugeVec(
 var late_mails = prometheus.NewCounterVec(
 	prometheus.CounterOpts{
 		Name: "late_mails",
-		Help: "number of mails received after timeout",
+		Help: "number of probing-mails received after their respective timeout",
 	},
 	[]string{"configname"})
 
@@ -66,32 +93,8 @@ func init() {
 	prometheus.MustRegister(late_mails)
 }
 
-// holds a configuration of external server to send test mails
-type config struct {
-	Crt_path string
-	Key_path string
-	Auth_user string
-	Auth_pw string
-	Http_port string
-	Http_endpoint string
-
-	Monitoring_interval string
-	Startup_offset_time string
-	Mail_check_timeout string
-
-	Servers []map[string]string
-}
-
-// holds an email with the corresponding file name
-type email struct {
-	Filename string
-	Name string
-	Token string
-	T_sent int64
-	T_recv int64
-}
-
-func parse_conf(path string) error {
+// parse configuration file and make sure we are ready to rumble
+func parseConfig(path string) error {
 
 	content, err := ioutil.ReadFile(path)
 
@@ -105,12 +108,12 @@ func parse_conf(path string) error {
 		return err
 	}
 
-
 	// yaml-lib in use cannot parse ints unfortunately, just strings
 	// therefore this is for the moment the least PITA-solution
 	// as we want to have at least a properly parsable config
 
 	// convert to int
+
 	var monitoringInterval_int, startupOffsetTime_int, mailCheckTimeout_int int
 	errs := make([]error, 3)
 	monitoringInterval_int, errs[0] = strconv.Atoi(globalconf.Monitoring_interval)
@@ -131,15 +134,14 @@ func parse_conf(path string) error {
 
 	// now convert to duration
 	monitoringInterval = time.Duration(monitoringInterval_int) * time.Minute
-	startupOffsetTime  = time.Duration(startupOffsetTime_int) * time.Second
-	mailCheckTimeout   = time.Duration(mailCheckTimeout_int) * time.Second
-
+	startupOffsetTime = time.Duration(startupOffsetTime_int) * time.Second
+	mailCheckTimeout = time.Duration(mailCheckTimeout_int) * time.Second
 
 	return nil
 
 }
 
-// send email over SMTP-server specified in config
+// send email over SMTP-server specified in config c
 func send(c map[string]string, msg string) {
 
 	//fmt.Println("sending mail")
@@ -151,11 +153,14 @@ func send(c map[string]string, msg string) {
 	}
 }
 
-// returns a random string to prepare the send mail for finding
+// returns a random string to pad the send mail with for identifying
 // it later in the maildir (and not mistake another one for it)
 // does also return unprintable characters in returned string,
 // which is actually appreciated to implicitly monitor that
 // mail gets through unchanged
+// although, if you would print those unprintable characters,
+// be aware of funny side-effects like terminal commands being
+// triggered and stuff like that
 func randstring(length int) string {
 
 	stuff := make([]byte, length)
@@ -164,9 +169,18 @@ func randstring(length int) string {
 		stuff[i] = byte(rand.Int())
 	}
 
+	rstr := string(stuff)
+
+	// ensure no "-" are in the returned string
+	// as "-" is used later as a field splitter
+	rstr = strings.Replace(rstr, "-", "X", -1)
+
 	// ensure no ":" are in the returned string
-	// as ":" is used later as a field splitter
-	return strings.Replace(string(stuff), "-", "X", -1)
+	// otherwise our payload might be made a header
+	// instead of the mailbody by mail.Send()
+	rstr = strings.Replace(rstr, ":", "X", -1)
+
+	return rstr
 }
 
 // delete the given mail to not leave an untidied maildir
@@ -175,6 +189,8 @@ func delmail(c map[string]string, m email) {
 	//fmt.Println("rm ", c["Detectiondir"]+"/"+m.Filename)
 }
 
+// compose a payload to be used in probing mails for identification
+// consisting of config name, unix time and padding of appropriate length
 func composePayload(name string, unixtimestamp int64) (string, string) {
 	timestampstr := strconv.FormatInt(unixtimestamp, 10)
 	remainingLength := contentLength - len(name) - len(timestampstr) - 2 // 2 for two delimiters
@@ -188,6 +204,8 @@ func composePayload(name string, unixtimestamp int64) (string, string) {
 	return payload, token
 }
 
+// return the config name and unix timestamp as appropriate types
+// from given payload
 func decomposePayload(payload []byte) (string, string, int64, error) {
 
 	// is the length correct?
@@ -216,15 +234,14 @@ func decomposePayload(payload []byte) (string, string, int64, error) {
 	return decomp[0], decomp[1], extractedUnixtime, nil
 }
 
+// log mails that have been so late that they timed out
 func lateMail(m email) {
 	//fmt.Println("got late mail via", m.Name)
 	late_mails.WithLabelValues(m.Name).Inc()
 }
 
-// probe if mail gets through (main monitoring component)
+// probe if mail gets through the entire chain from specified SMTP into Maildir
 func probe(c map[string]string, reportChans map[string]chan email) {
-
-	//token := randstring(content_length)
 
 	payload, token := composePayload(c["Name"], time.Now().Unix())
 	send(c, payload)
@@ -233,7 +250,7 @@ func probe(c map[string]string, reportChans map[string]chan email) {
 
 	// "for seekingMail" is needed to account for mails that are coming late
 	// otherwise, a late mail would trigger the first case and stop us from
-	// being able to detect the mail we are waiting for
+	// being able to detect the mail we are actually waiting for
 	seekingMail := true
 	for seekingMail {
 		select {
@@ -259,8 +276,6 @@ func probe(c map[string]string, reportChans map[string]chan email) {
 			seekingMail = false
 		}
 
-		//time.Sleep(5 * time.Millisecond)
-
 	}
 }
 
@@ -274,7 +289,7 @@ func monitor(c map[string]string, wg *sync.WaitGroup, reportChans map[string]cha
 	wg.Done()
 }
 
-// secret for basic http-auth
+// return secret for basic http-auth
 func Secret(user, realm string) string {
 	if user == globalconf.Auth_user {
 		return globalconf.Auth_pw
@@ -282,27 +297,29 @@ func Secret(user, realm string) string {
 	return ""
 }
 
+// monitor Detectiondirs and report mails that come in
 func detectMail(watcher *fsnotify.Watcher, reportChans map[string]chan email) {
 
-		fmt.Println("started mail-detection")
+	fmt.Println("started mail-detection")
 
-		for {
-			select {
-			case event := <-watcher.Events:
-				if event.Op&fsnotify.Create == fsnotify.Create {
-					mail, err := parseMail(event.Name)
+	for {
+		select {
+		case event := <-watcher.Events:
+			if event.Op&fsnotify.Create == fsnotify.Create {
+				mail, err := parseMail(event.Name)
 
-					if err == nil {
-						reportChans[mail.Name] <- mail
-					}
+				if err == nil {
+					reportChans[mail.Name] <- mail
 				}
-			case err := <-watcher.Errors:
-				fmt.Println("watcher-error:", err)
 			}
+		case err := <-watcher.Errors:
+			fmt.Println("watcher-error:", err)
 		}
+	}
 
 }
 
+// read a mailfile's content and parse it into a mail-struct if one of ours
 func parseMail(path string) (email, error) {
 
 	// to date the mails found
@@ -327,7 +344,6 @@ func parseMail(path string) (email, error) {
 
 }
 
-
 func main() {
 
 	flag.Parse()
@@ -337,13 +353,12 @@ func main() {
 	// from earlier starts of the binary
 	rand.Seed(time.Now().Unix())
 
-	err := parse_conf(*conf_path)
+	err := parseConfig(*conf_path)
 
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
-
 
 	fswatcher, err := fsnotify.NewWatcher()
 
@@ -356,7 +371,7 @@ func main() {
 
 	reportChans := make(map[string]chan email)
 	for _, c := range globalconf.Servers {
-		fswatcher.Add(c["Detectiondir"])  // deduplication is done within fsnotify
+		fswatcher.Add(c["Detectiondir"]) // deduplication is done within fsnotify
 		reportChans[c["Name"]] = make(chan email)
 		//fmt.Println("adding path to watcher:", c["Detectiondir"])
 	}
@@ -383,11 +398,10 @@ func main() {
 		http.Handle(globalconf.Http_endpoint, prometheus.Handler())
 	}
 
-
 	if *useTLS {
-		err = http.ListenAndServeTLS(":"+globalconf.Http_port, globalconf.Crt_path, globalconf.Key_path,  nil)
+		err = http.ListenAndServeTLS(":"+globalconf.Http_port, globalconf.Crt_path, globalconf.Key_path, nil)
 	} else {
-		err = http.ListenAndServe(":"+globalconf.Http_port,  nil)
+		err = http.ListenAndServe(":"+globalconf.Http_port, nil)
 	}
 
 	if err != nil {
