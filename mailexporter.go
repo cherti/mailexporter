@@ -83,7 +83,7 @@ var last_mail_deliver_time = prometheus.NewGaugeVec(
 var late_mails = prometheus.NewCounterVec(
 	prometheus.CounterOpts{
 		Name: "late_mails",
-		Help: "number of mails received after timeout",
+		Help: "number of probing-mails received after their respective timeout",
 	},
 	[]string{"configname"})
 

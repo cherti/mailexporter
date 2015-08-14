@@ -10,6 +10,8 @@ Success in indicated by a value of `1` of the metric `mail_deliver_success`, fai
 ## Exported metrics
 
 * `mail_deliver_success`: indicates mail delivery functionality (`1` if functional, `0` if not)
+* `last_mail_deliver_time`: last time a mail was successfully delivered to the system as a unix timestamp
+* `late_mails`: number of probing-mails being received after their respective timeout
 
 
 ## Building and running
@@ -47,6 +49,8 @@ Further configuration is done via the configuration file.
 The configuration is done in [YAML](www.yaml.org).
 
 For detailed info see `config.yml` as the provided example configuration.
+
+By default, mailexporter looks for a configuration file ./mailexporter.conf. This can be changed via `-config-file=/path/to/file` as cli-option.
 
 
 ## License
