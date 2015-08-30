@@ -366,7 +366,7 @@ func main() {
 
 	// initialize Metrics that will be used seldom so that they actually get exported with a metric
 	for _, c := range globalconf.Servers {
-		late_mails.GetMetricWithLabelValues(c["Detectiondir"])
+		late_mails.GetMetricWithLabelValues(c["Name"])
 	}
 
 
