@@ -184,9 +184,12 @@ func randstring(length int) string {
 }
 
 // delete the given mail to not leave an untidied maildir
-func delmail(c map[string]string, m email) {
-	os.Remove(c["Detectiondir"] + "/" + m.Filename)
-	//fmt.Println("rm ", c["Detectiondir"]+"/"+m.Filename)
+func delmail(m email) {
+	err := os.Remove(m.Filename)
+	if err != nil {
+		fmt.Println(err)
+	}
+	//fmt.Println("rm ", m.Filename)
 }
 
 // compose a payload to be used in probing mails for identification
@@ -262,7 +265,7 @@ func probe(c map[string]string, reportChans map[string]chan email) {
 
 				deliver_ok.WithLabelValues(c["Name"]).Set(1)
 				last_mail_deliver_time.WithLabelValues(c["Name"]).Set(float64(mail.T_recv))
-				delmail(c, mail)
+				delmail(mail)
 				seekingMail = false
 
 			} else {
@@ -348,6 +351,7 @@ func main() {
 
 	flag.Parse()
 
+
 	// seed the RNG, otherwise we would have same randomness on every startup
 	// which should not, but might in worst case interfere with leftover-mails
 	// from earlier starts of the binary
@@ -359,6 +363,12 @@ func main() {
 		fmt.Println(err)
 		os.Exit(1)
 	}
+
+	// initialize Metrics that will be used seldom so that they actually get exported with a metric
+	for _, c := range globalconf.Servers {
+		late_mails.GetMetricWithLabelValues(c["Detectiondir"])
+	}
+
 
 	fswatcher, err := fsnotify.NewWatcher()
 
