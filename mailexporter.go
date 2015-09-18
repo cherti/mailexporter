@@ -76,7 +76,14 @@ var deliver_ok = prometheus.NewGaugeVec(
 var last_mail_deliver_time = prometheus.NewGaugeVec(
 	prometheus.GaugeOpts{
 		Name: "last_mail_deliver_time",
-		Help: "timestamp of detection of last correctly received testmail",
+		Help: "timestamp (in s) of detection of last correctly received testmail",
+	},
+	[]string{"configname"})
+
+var last_mail_deliver_duration = prometheus.NewGaugeVec(
+	prometheus.GaugeOpts{
+		Name: "last_mail_deliver_duration",
+		Help: "duration (in ms) of delivery of last correctly received testmail",
 	},
 	[]string{"configname"})
 
@@ -87,10 +94,12 @@ var late_mails = prometheus.NewCounterVec(
 	},
 	[]string{"configname"})
 
+
 func init() {
 	prometheus.MustRegister(deliver_ok)
 	prometheus.MustRegister(last_mail_deliver_time)
 	prometheus.MustRegister(late_mails)
+	prometheus.MustRegister(last_mail_deliver_duration)
 }
 
 // parse configuration file and make sure we are ready to rumble
@@ -246,7 +255,7 @@ func lateMail(m email) {
 // probe if mail gets through the entire chain from specified SMTP into Maildir
 func probe(c map[string]string, reportChans map[string]chan email) {
 
-	payload, token := composePayload(c["Name"], time.Now().Unix())
+	payload, token := composePayload(c["Name"], time.Now().UnixNano())
 	send(c, payload)
 
 	timeout := time.After(mailCheckTimeout)
@@ -260,11 +269,17 @@ func probe(c map[string]string, reportChans map[string]chan email) {
 		case mail := <-reportChans[c["Name"]]:
 			//fmt.Println("getting mail...")
 
+			// timestamps are in nanoseconds
+			// last_mail_deliver_time shall be standard unix-timestamp
+			// last_mail_deliver_duration shall be milliseconds for higher resolution
+			deliverTime := mail.T_recv/int64(time.Second)
+			deliverDuration := (mail.T_recv - mail.T_sent)/int64(time.Millisecond)
+			last_mail_deliver_time.WithLabelValues(c["Name"]).Set(float64(deliverTime))
+			last_mail_deliver_duration.WithLabelValues(c["Name"]).Set(float64(deliverDuration))
+
 			if mail.Token == token {
 				// we obtained the expected mail
-
 				deliver_ok.WithLabelValues(c["Name"]).Set(1)
-				last_mail_deliver_time.WithLabelValues(c["Name"]).Set(float64(mail.T_recv))
 				delmail(mail)
 				seekingMail = false
 
@@ -326,7 +341,7 @@ func detectMail(watcher *fsnotify.Watcher, reportChans map[string]chan email) {
 func parseMail(path string) (email, error) {
 
 	// to date the mails found
-	t := time.Now().Unix()
+	t := time.Now().UnixNano()
 
 	// try parsing
 	content, _ := ioutil.ReadFile(path)
