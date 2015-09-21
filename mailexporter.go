@@ -94,12 +94,32 @@ var late_mails = prometheus.NewCounterVec(
 	},
 	[]string{"configname"})
 
+var mail_deliver_durations = prometheus.NewHistogramVec(
+	prometheus.HistogramOpts{
+		Name: "mail_deliver_durations",
+		Help: "durations (in ms) of mail delivery",
+		Buckets: histBuckets(100e3, 50),
+	},
+	[]string{"configname"})
+
+func histBuckets(upperBound float64, binsize float64) []float64 {
+	bins := int(upperBound)/int(binsize)
+
+	buckets := make([]float64, bins)
+	binborder := binsize
+	for i := 0; i < bins; i++ {
+		buckets[i] = binborder
+		binborder += binsize
+	}
+	return buckets
+}
 
 func init() {
 	prometheus.MustRegister(deliver_ok)
 	prometheus.MustRegister(last_mail_deliver_time)
 	prometheus.MustRegister(late_mails)
 	prometheus.MustRegister(last_mail_deliver_duration)
+	prometheus.MustRegister(mail_deliver_durations)
 }
 
 // parse configuration file and make sure we are ready to rumble
@@ -272,10 +292,11 @@ func probe(c map[string]string, reportChans map[string]chan email) {
 			// timestamps are in nanoseconds
 			// last_mail_deliver_time shall be standard unix-timestamp
 			// last_mail_deliver_duration shall be milliseconds for higher resolution
-			deliverTime := mail.T_recv/int64(time.Second)
-			deliverDuration := (mail.T_recv - mail.T_sent)/int64(time.Millisecond)
-			last_mail_deliver_time.WithLabelValues(c["Name"]).Set(float64(deliverTime))
-			last_mail_deliver_duration.WithLabelValues(c["Name"]).Set(float64(deliverDuration))
+			deliverTime := float64(mail.T_recv/int64(time.Second))
+			deliverDuration := float64((mail.T_recv - mail.T_sent)/int64(time.Millisecond))
+			last_mail_deliver_time.WithLabelValues(c["Name"]).Set(deliverTime)
+			last_mail_deliver_duration.WithLabelValues(c["Name"]).Set(deliverDuration)
+			mail_deliver_durations.WithLabelValues(c["Name"]).Observe(deliverDuration)
 
 			if mail.Token == token {
 				// we obtained the expected mail
