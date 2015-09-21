@@ -15,6 +15,7 @@ The following metrics are exported, for each metric there is one instance per pr
 * `last_mail_deliver_time`: last time a mail was successfully delivered to the system as a unix timestamp (in seconds)
 * `last_mail_deliver_duration`: time it took for the last received mail to be delivered (doesn't matter if timed out or not) in milliseconds
 * `late_mails`: number of probing-mails being received after their respective timeout
+* `mail_deliver_durations`: histogram of `last_mail_deliver_duration` with 50ms-buckets up to 100s currently (to observe even massively late mails)
 
 ## Building and running
 
