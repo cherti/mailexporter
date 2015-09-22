@@ -23,32 +23,38 @@ import (
 )
 
 var globalconf config
-var contentLength int = 40 // length of payload for probing-mails
-
-// these hold further configuration not hold by the config-struct
-// to be filled during main()
-var monitoringInterval time.Duration
-var startupOffsetTime time.Duration
-var mailCheckTimeout time.Duration
+var contentLength = 40 // length of payload for probing-mails
 
 // holds a configuration of external server to send test mails
 type config struct {
-	Crt_path      string
-	Key_path      string
-	Auth_user     string
-	Auth_pw       string
-	Http_port     string
-	Http_endpoint string
+	CrtPath      string
+	KeyPath      string
+	AuthUser     string
+	AuthPass     string
+	HTTPPort     string
+	HTTPEndpoint string
 
-	Monitoring_interval string
-	Startup_offset_time string
-	Mail_check_timeout  string
+	MonitoringInterval time.Duration
+	StartupOffset time.Duration
+	MailCheckTimeout  time.Duration
 
-	Servers []map[string]string
+	Servers []SMTPServerConfig
+	//Servers []map[string]string
+}
+
+type SMTPServerConfig struct {
+	Name string
+	Server string
+	Port string
+	Login string
+	Passphrase string
+	From string
+	To string
+	Detectiondir string
 }
 
 // cli-flags
-var conf_path = flag.String("config-file", "./mailexporter.conf", "config-file to use")
+var confPath = flag.String("config-file", "./mailexporter.conf", "config-file to use")
 var useTLS = flag.Bool("tls", true, "use TLS for metrics-endpoint")
 var useAuth = flag.Bool("auth", true, "use HTTP-Basic-Auth for metrics-endpoint")
 
@@ -137,48 +143,19 @@ func parseConfig(path string) error {
 		return err
 	}
 
-	// yaml-lib in use cannot parse ints unfortunately, just strings
-	// therefore this is for the moment the least PITA-solution
-	// as we want to have at least a properly parsable config
-
-	// convert to int
-
-	var monitoringInterval_int, startupOffsetTime_int, mailCheckTimeout_int int
-	errs := make([]error, 3)
-	monitoringInterval_int, errs[0] = strconv.Atoi(globalconf.Monitoring_interval)
-	startupOffsetTime_int, errs[1] = strconv.Atoi(globalconf.Startup_offset_time)
-	mailCheckTimeout_int, errs[2] = strconv.Atoi(globalconf.Mail_check_timeout)
-
-	parsingErrors := false
-	for _, e := range errs {
-		if e != nil {
-			fmt.Println(err)
-			parsingErrors = true
-		}
-	}
-
-	if parsingErrors {
-		return errors.New("parsing errors in configuration")
-	}
-
-	// now convert to duration
-	monitoringInterval = time.Duration(monitoringInterval_int) * time.Minute
-	startupOffsetTime = time.Duration(startupOffsetTime_int) * time.Second
-	mailCheckTimeout = time.Duration(mailCheckTimeout_int) * time.Second
-
 	return nil
-
 }
 
 // send email over SMTP-server specified in config c
-func send(c map[string]string, msg string) {
+func send(c SMTPServerConfig, msg string) {
 
 	//fmt.Println("sending mail")
-	a := smtp.PlainAuth("", c["Login"], c["Passphrase"], c["Server"])
-	err := smtp.SendMail(c["Server"]+":"+c["Port"], a, c["From"], []string{c["To"]}, []byte(msg))
+	a := smtp.PlainAuth("", c.Login, c.Passphrase, c.Server)
+	err := smtp.SendMail(c.Server+":"+c.Port, a, c.From, []string{c.To}, []byte(msg))
 
 	if err != nil {
 		fmt.Println(err)
+		fmt.Println(c.Server+":"+c.Port)
 	}
 }
 
@@ -273,12 +250,12 @@ func lateMail(m email) {
 }
 
 // probe if mail gets through the entire chain from specified SMTP into Maildir
-func probe(c map[string]string, reportChans map[string]chan email) {
+func probe(c SMTPServerConfig, reportChans map[string]chan email) {
 
-	payload, token := composePayload(c["Name"], time.Now().UnixNano())
+	payload, token := composePayload(c.Name, time.Now().UnixNano())
 	send(c, payload)
 
-	timeout := time.After(mailCheckTimeout)
+	timeout := time.After(globalconf.MailCheckTimeout)
 
 	// "for seekingMail" is needed to account for mails that are coming late
 	// otherwise, a late mail would trigger the first case and stop us from
@@ -286,7 +263,7 @@ func probe(c map[string]string, reportChans map[string]chan email) {
 	seekingMail := true
 	for seekingMail {
 		select {
-		case mail := <-reportChans[c["Name"]]:
+		case mail := <-reportChans[c.Name]:
 			//fmt.Println("getting mail...")
 
 			// timestamps are in nanoseconds
@@ -294,13 +271,13 @@ func probe(c map[string]string, reportChans map[string]chan email) {
 			// last_mail_deliver_duration shall be milliseconds for higher resolution
 			deliverTime := float64(mail.T_recv/int64(time.Second))
 			deliverDuration := float64((mail.T_recv - mail.T_sent)/int64(time.Millisecond))
-			last_mail_deliver_time.WithLabelValues(c["Name"]).Set(deliverTime)
-			last_mail_deliver_duration.WithLabelValues(c["Name"]).Set(deliverDuration)
-			mail_deliver_durations.WithLabelValues(c["Name"]).Observe(deliverDuration)
+			last_mail_deliver_time.WithLabelValues(c.Name).Set(deliverTime)
+			last_mail_deliver_duration.WithLabelValues(c.Name).Set(deliverDuration)
+			mail_deliver_durations.WithLabelValues(c.Name).Observe(deliverDuration)
 
 			if mail.Token == token {
 				// we obtained the expected mail
-				deliver_ok.WithLabelValues(c["Name"]).Set(1)
+				deliver_ok.WithLabelValues(c.Name).Set(1)
 				delmail(mail)
 				seekingMail = false
 
@@ -311,7 +288,7 @@ func probe(c map[string]string, reportChans map[string]chan email) {
 
 		case <-timeout:
 			//fmt.Println("getting mail timed out")
-			deliver_ok.WithLabelValues(c["Name"]).Set(0)
+			deliver_ok.WithLabelValues(c.Name).Set(0)
 			seekingMail = false
 		}
 
@@ -319,19 +296,19 @@ func probe(c map[string]string, reportChans map[string]chan email) {
 }
 
 // probe every couple of δt if mail still gets through
-func monitor(c map[string]string, wg *sync.WaitGroup, reportChans map[string]chan email) {
-	fmt.Println("started monitoring for config", c["Name"])
+func monitor(c SMTPServerConfig, wg *sync.WaitGroup, reportChans map[string]chan email) {
+	fmt.Println("started monitoring for config", c.Name)
 	for {
 		probe(c, reportChans)
-		time.Sleep(monitoringInterval)
+		time.Sleep(globalconf.MonitoringInterval)
 	}
 	wg.Done()
 }
 
 // return secret for basic http-auth
 func Secret(user, realm string) string {
-	if user == globalconf.Auth_user {
-		return globalconf.Auth_pw
+	if user == globalconf.AuthUser {
+		return globalconf.AuthPass
 	}
 	return ""
 }
@@ -393,7 +370,7 @@ func main() {
 	// from earlier starts of the binary
 	rand.Seed(time.Now().Unix())
 
-	err := parseConfig(*conf_path)
+	err := parseConfig(*confPath)
 
 	if err != nil {
 		fmt.Println(err)
@@ -402,7 +379,7 @@ func main() {
 
 	// initialize Metrics that will be used seldom so that they actually get exported with a metric
 	for _, c := range globalconf.Servers {
-		late_mails.GetMetricWithLabelValues(c["Name"])
+		late_mails.GetMetricWithLabelValues(c.Name)
 	}
 
 
@@ -417,9 +394,9 @@ func main() {
 
 	reportChans := make(map[string]chan email)
 	for _, c := range globalconf.Servers {
-		fswatcher.Add(c["Detectiondir"]) // deduplication is done within fsnotify
-		reportChans[c["Name"]] = make(chan email)
-		//fmt.Println("adding path to watcher:", c["Detectiondir"])
+		fswatcher.Add(c.Detectiondir) // deduplication is done within fsnotify
+		reportChans[c.Name] = make(chan email)
+		//fmt.Println("adding path to watcher:", c.Detectiondir)
 	}
 
 	go detectMail(fswatcher, reportChans)
@@ -433,21 +410,21 @@ func main() {
 
 		// keep a timedelta between monitoring jobs to reduce interference
 		// (although that shouldn't be an issue)
-		time.Sleep(startupOffsetTime)
+		time.Sleep(globalconf.StartupOffset)
 	}
 
 	fmt.Println("starting HTTP-endpoint")
 	if *useAuth {
 		authenticator := auth.NewBasicAuthenticator("prometheus", Secret)
-		http.HandleFunc(globalconf.Http_endpoint, auth.JustCheck(authenticator, prometheus.Handler().ServeHTTP))
+		http.HandleFunc(globalconf.HTTPEndpoint, auth.JustCheck(authenticator, prometheus.Handler().ServeHTTP))
 	} else {
-		http.Handle(globalconf.Http_endpoint, prometheus.Handler())
+		http.Handle(globalconf.HTTPEndpoint, prometheus.Handler())
 	}
 
 	if *useTLS {
-		err = http.ListenAndServeTLS(":"+globalconf.Http_port, globalconf.Crt_path, globalconf.Key_path, nil)
+		err = http.ListenAndServeTLS(":"+globalconf.HTTPPort, globalconf.CrtPath, globalconf.KeyPath, nil)
 	} else {
-		err = http.ListenAndServe(":"+globalconf.Http_port, nil)
+		err = http.ListenAndServe(":"+globalconf.HTTPPort, nil)
 	}
 
 	if err != nil {
