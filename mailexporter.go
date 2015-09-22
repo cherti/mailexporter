@@ -26,28 +26,44 @@ var contentLength = 40 // length of payload for probing-mails
 
 // holds a configuration of external server to send test mails
 var globalconf struct {
-	CrtPath      string
-	KeyPath      string
-	AuthUser     string
-	AuthPass     string
-	HTTPPort     string
+	// path to TLS-Public-Key
+	CrtPath string
+	// path to TLS-Private-Key
+	KeyPath string
+	// HTTP Basic Auth Username
+	AuthUser string
+	// HTTP Basic Auth Passphrase
+	AuthPass string
+	// Port to listen on for Prometheus-Endpoint
+	HTTPPort string
+	// URL for metrics-endpoint
 	HTTPEndpoint string
 
+	// Time to wait between probe-attempts
 	MonitoringInterval time.Duration
-	StartupOffset      time.Duration
-	MailCheckTimeout   time.Duration
+	// Time between start of monitoring-goroutines
+	StartupOffset time.Duration
+	// Time to wait until mail_deliver_success = 0 is reported
+	MailCheckTimeout time.Duration
 
+	// SMTP-Servers used for probing
 	Servers []SMTPServerConfig
-	//Servers []map[string]string
 }
 
 type SMTPServerConfig struct {
-	Name         string
-	Server       string
-	Port         string
-	Login        string
-	Passphrase   string
-	From         string
+	// name the probing attempts via this server are classified with
+	Name string
+	// SMTP-serveraddress
+	Server string
+	// SMTP-serverport
+	Port string
+	// SMTP-username
+	Login string
+	// SMTP-passphrase
+	Passphrase string
+	// probing-mail-sender-address
+	From string
+	// probing-mail-destination
 	To           string
 	Detectiondir string
 }
@@ -65,11 +81,16 @@ var (
 
 // holds information about probing-email with the corresponding file name
 type email struct {
+	// filename of the mailfile
 	Filename string
-	Name     string
-	Token    string
-	T_sent   int64
-	T_recv   int64
+	// name of the configuration the mail originated from
+	Name string
+	// unique token to identify the mail even if timings and name are exactly the same
+	Token string
+	// time the mail was sent as unix-timestamp
+	T_sent int64
+	// time the mail was detected as unix-timestamp
+	T_recv int64
 }
 
 // prometheus-instrumentation
