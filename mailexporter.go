@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"errors"
 	"flag"
-	"fmt"
 	"io/ioutil"
+	"log"
 	"math/rand"
 	"net/http"
 	"net/mail"
@@ -13,11 +13,11 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	auth "github.com/abbot/go-http-auth"
 	"github.com/prometheus/client_golang/prometheus"
+	promlog "github.com/prometheus/log"
 	"gopkg.in/fsnotify.v1"
 	"gopkg.in/yaml.v2"
 )
@@ -152,13 +152,12 @@ func parseConfig(path string) error {
 
 // send sends a probing-email over SMTP-server specified in config c to be waited for on the receiving side.
 func send(c SMTPServerConfig, msg string) {
-	//fmt.Println("sending mail")
+	promlog.Debug("sending mail")
 	a := smtp.PlainAuth("", c.Login, c.Passphrase, c.Server)
 	err := smtp.SendMail(c.Server+":"+c.Port, a, c.From, []string{c.To}, []byte(msg))
 
 	if err != nil {
-		fmt.Println(err)
-		fmt.Println(c.Server + ":" + c.Port)
+		promlog.Warn(err)
 	}
 }
 
@@ -196,9 +195,9 @@ func randString(length int) string {
 // deleteMail delete the given mail to not leave an untidied maildir.
 func deleteMail(m email) {
 	if err := os.Remove(m.Filename); err != nil {
-		fmt.Println(err)
+		promlog.Warn(err)
 	}
-	//fmt.Println("rm ", m.Filename)
+	promlog.Debug("rm ", m.Filename)
 }
 
 // composePayload composes a payload to be used in probing mails for identification
@@ -211,7 +210,7 @@ func composePayload(name string, unixtimestamp int64) (payload string, token str
 	token = randString(remainingLength)
 
 	payload = name + "-" + token + "-" + timestampstr
-	//fmt.Println("composed payload:", payload)
+	promlog.Debug("composed payload:", payload)
 
 	return payload, token
 }
@@ -224,19 +223,19 @@ func decomposePayload(payload []byte) (name string, token string, extractedUnixT
 		return "", "", -1, ErrNotOurDept
 	}
 
-	//fmt.Println("payload to decompose:", payload)
+	promlog.Debug("payload to decompose:", payload)
 
 	decomp := strings.Split(string(payload), "-")
 	// is it correctly parsable?
 	if len(decomp) != 3 {
-		//fmt.Println("no fitting decomp")
+		promlog.Debug("no fitting decomp")
 		return "", "", -1, ErrNotOurDept
 	}
 
 	extractedUnixTime, err = strconv.ParseInt(decomp[2], 10, 64)
 	// is the last one a unix-timestamp?
 	if err != nil {
-		//fmt.Println("unix-timestamp-parse-error")
+		promlog.Debug("unix-timestamp-parse-error")
 		return "", "", -1, ErrNotOurDept
 	}
 
@@ -245,7 +244,7 @@ func decomposePayload(payload []byte) (name string, token string, extractedUnixT
 
 // lateMail logs mails that have been so late that they timed out
 func lateMail(m email) {
-	//fmt.Println("got late mail via", m.Name)
+	promlog.Debug("got late mail via", m.Name)
 	late_mails.WithLabelValues(m.Name).Inc()
 }
 
@@ -266,7 +265,7 @@ seekloop:
 	for {
 		select {
 		case mail := <-reportChans[c.Name]:
-			//fmt.Println("getting mail...")
+			promlog.Debug("getting mail...")
 
 			// timestamps are in nanoseconds
 			// last_mail_deliver_time shall be standard unix-timestamp
@@ -288,7 +287,7 @@ seekloop:
 			lateMail(mail)
 
 		case <-timeout:
-			//fmt.Println("getting mail timed out")
+			promlog.Debug("Getting mail timed out.")
 			deliver_ok.WithLabelValues(c.Name).Set(0)
 			break seekloop
 		}
@@ -296,8 +295,8 @@ seekloop:
 }
 
 // monitor probes every $(globalconf.MonitoringInterval) if mail still gets through.
-func monitor(c SMTPServerConfig, wg *sync.WaitGroup, reportChans map[string]chan email) {
-	fmt.Println("started monitoring for config", c.Name)
+func monitor(c SMTPServerConfig, reportChans map[string]chan email) {
+	log.Println("Started monitoring for config", c.Name)
 	for {
 		probe(c, reportChans)
 		time.Sleep(globalconf.MonitoringInterval)
@@ -315,7 +314,7 @@ func Secret(user, realm string) string {
 
 // detectMail monitors Detectiondirs and reports mails that come in.
 func detectMail(watcher *fsnotify.Watcher, reportChans map[string]chan email) {
-	fmt.Println("started mail-detection")
+	log.Println("Started mail-detection.")
 
 	for {
 		select {
@@ -328,7 +327,7 @@ func detectMail(watcher *fsnotify.Watcher, reportChans map[string]chan email) {
 				}
 			}
 		case err := <-watcher.Errors:
-			fmt.Println("watcher-error:", err)
+			promlog.Warn("watcher-error:", err)
 		}
 	}
 }
@@ -365,8 +364,7 @@ func main() {
 
 	err := parseConfig(*confPath)
 	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
+		promlog.Fatal(err)
 	}
 
 	// initialize Metrics that will be used seldom so that they actually get exported with a metric
@@ -376,8 +374,7 @@ func main() {
 
 	fswatcher, err := fsnotify.NewWatcher()
 	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
+		promlog.Fatal(err)
 	}
 
 	defer fswatcher.Close()
@@ -388,24 +385,21 @@ func main() {
 	for _, c := range globalconf.Servers {
 		fswatcher.Add(c.Detectiondir) // deduplication is done within fsnotify
 		reportChans[c.Name] = make(chan email)
-		//fmt.Println("adding path to watcher:", c.Detectiondir)
+		promlog.Debug("adding path to watcher:", c.Detectiondir)
 	}
 
 	go detectMail(fswatcher, reportChans)
 
-	wg := new(sync.WaitGroup)
-	wg.Add(len(globalconf.Servers))
-
 	// now fire up the monitoring jobs
 	for _, c := range globalconf.Servers {
-		go monitor(c, wg, reportChans)
+		go monitor(c, reportChans)
 
 		// keep a timedelta between monitoring jobs to reduce interference
 		// (although that shouldn't be an issue)
 		time.Sleep(globalconf.StartupOffset)
 	}
 
-	fmt.Println("starting HTTP-endpoint")
+	log.Println("Starting HTTP-endpoint")
 	if *useAuth {
 		authenticator := auth.NewBasicAuthenticator("prometheus", Secret)
 		http.HandleFunc(globalconf.HTTPEndpoint, auth.JustCheck(authenticator, prometheus.Handler().ServeHTTP))
@@ -414,16 +408,11 @@ func main() {
 	}
 
 	if *useTLS {
-		err = http.ListenAndServeTLS(":"+globalconf.HTTPPort, globalconf.CrtPath, globalconf.KeyPath, nil)
+		promlog.Fatal(http.ListenAndServeTLS(":"+globalconf.HTTPPort, globalconf.CrtPath, globalconf.KeyPath, nil))
 	} else {
-		err = http.ListenAndServe(":"+globalconf.HTTPPort, nil)
-	}
-
-	if err != nil {
-		fmt.Println(err)
+		promlog.Fatal(http.ListenAndServe(":"+globalconf.HTTPPort, nil))
 	}
 
 	// wait for goroutines to exit
 	// otherwise main would terminate and the goroutines monitoring would be killed
-	wg.Wait()
 }
