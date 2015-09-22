@@ -5,7 +5,7 @@ keypath: /path/to/cert.key
 # HTTP-Basic-Auth-Credentials (in hashed form, see htpasswd)
 # defaulting to "prometheus" & "hello" here
 authuser: "prometheus"
-authpass: "$apr1$Q9DfPfFo$xxVkL02CMMonCEERocsEp0"
+authpass: "hello"
 
 # port and endpoint for http-endpoint
 httpport: 8080
