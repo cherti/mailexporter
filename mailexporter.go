@@ -438,7 +438,4 @@ func main() {
 	} else {
 		promlog.Fatal(http.ListenAndServe(":"+globalconf.HTTPPort, nil))
 	}
-
-	// wait for goroutines to exit
-	// otherwise main would terminate and the goroutines monitoring would be killed
 }
