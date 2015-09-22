@@ -34,6 +34,8 @@ var globalconf struct {
 	AuthUser string
 	// HTTP Basic Auth Passphrase
 	AuthPass string
+	// HTTP Basic Auth Hashvalue (filled in parseConfig)
+	authHash string
 	// Port to listen on for Prometheus-Endpoint
 	HTTPPort string
 	// URL for metrics-endpoint
@@ -167,6 +169,9 @@ func parseConfig(path string) error {
 	if err != nil {
 		return err
 	}
+
+	// the basic HTTP-Auth-Lib doesn't support Plaintext-passwords up to now, therefore precompute an md5-hash for that
+	globalconf.authHash = string(auth.MD5Crypt([]byte(globalconf.AuthPass), []byte("salt"), []byte("$magic$")))
 
 	return nil
 }
@@ -325,10 +330,10 @@ func monitor(c SMTPServerConfig, reportChans map[string]chan email) {
 	//wg.Done()
 }
 
-// Secret returns secret for basic http-auth
-func Secret(user, realm string) string {
+// secret returns secret for basic http-auth
+func secret(user, realm string) string {
 	if user == globalconf.AuthUser {
-		return globalconf.AuthPass
+		return globalconf.authHash
 	}
 	return ""
 }
@@ -422,7 +427,7 @@ func main() {
 
 	log.Println("Starting HTTP-endpoint")
 	if *useAuth {
-		authenticator := auth.NewBasicAuthenticator("prometheus", Secret)
+		authenticator := auth.NewBasicAuthenticator("prometheus", secret)
 		http.HandleFunc(globalconf.HTTPEndpoint, auth.JustCheck(authenticator, prometheus.Handler().ServeHTTP))
 	} else {
 		http.Handle(globalconf.HTTPEndpoint, prometheus.Handler())
