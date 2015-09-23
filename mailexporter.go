@@ -1,9 +1,10 @@
 package main
 
 import (
-	//"bytes"
+	"bytes"
 	"errors"
 	"flag"
+	"io"
 	"io/ioutil"
 	"log"
 	"math/rand"
@@ -22,7 +23,7 @@ import (
 	"gopkg.in/yaml.v2"
 )
 
-var contentLength = 40 // length of payload for probing-mails
+var tokenLength = 40 // length of payload for probing-mails
 
 // holds a configuration of external server to send test mails
 var globalconf struct {
@@ -228,13 +229,12 @@ func deleteMail(m email) {
 }
 
 // composePayload composes a payload to be used in probing mails for identification
-// consisting of config name, unix time and padding of appropriate length.
+// consisting of config name, unix time and a unique token for identification.
 func composePayload(name string, unixtimestamp int64) (payload string, token string) {
 	timestampstr := strconv.FormatInt(unixtimestamp, 10)
-	remainingLength := contentLength - len(name) - len(timestampstr) - 2 // 2 for two delimiters
 
-	// Now get the token to have a unique token and use it to pad to full contentLength.
-	token = randString(remainingLength)
+	// Now get the token to have a unique token.
+	token = randString(tokenLength)
 
 	payload = strings.Join([]string{name,token,timestampstr}, "-")
 	promlog.Debug("composed payload:", payload)
@@ -246,9 +246,10 @@ func composePayload(name string, unixtimestamp int64) (payload string, token str
 // from given payload.
 func decomposePayload(payload []byte) (name string, token string, extractedUnixTime int64, err error) {
 	// is the length correct?
-	if len(payload) != contentLength {
-		return "", "", -1, ErrNotOurDept
-	}
+	//if len(payload) != contentLength {
+	//	log.Println("payload-length:", len(payload))
+	//	return "", "", -1, ErrNotOurDept
+	//}
 
 	promlog.Debug("payload to decompose:", payload)
 
@@ -366,13 +367,18 @@ func parseMail(path string) (email, error) {
 	if err != nil {
 	    return email{}, err
 	}
-	mail, err := mail.ReadMessage(f)
+	defer f.Close()
+
+	mail, err := mail.ReadMessage(io.LimitReader(f, 8192))
 	if err != nil {
 	    return email{}, err
 	}
 
-	payload := make([]byte, contentLength)
-	mail.Body.Read(payload)
+	payload, err := ioutil.ReadAll(mail.Body)
+	if err != nil {
+		return email{}, err
+	}
+	payload = bytes.TrimSpace(payload) // mostly for trailing "\n"
 
 	name, token, unixtime, err := decomposePayload(payload)
 	// return if parsable
