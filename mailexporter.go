@@ -1,7 +1,7 @@
 package main
 
 import (
-	"bytes"
+	//"bytes"
 	"errors"
 	"flag"
 	"io/ioutil"
@@ -26,47 +26,48 @@ var contentLength = 40 // length of payload for probing-mails
 
 // holds a configuration of external server to send test mails
 var globalconf struct {
-	// path to TLS-Public-Key
+	// The path to the TLS-Public-Key.
 	CrtPath string
-	// path to TLS-Private-Key
+	// The path to the TLS-Private-Key.
 	KeyPath string
-	// HTTP Basic Auth Username
+	// The username for HTTP Basic Auth.
 	AuthUser string
-	// HTTP Basic Auth Passphrase
+	// The passphrase for HTTP Basic Auth.
 	AuthPass string
-	// HTTP Basic Auth Hashvalue (filled in parseConfig)
+	// The hashvalue to be used in HTTP Basic Auth (filled in parseConfig).
 	authHash string
-	// Port to listen on for Prometheus-Endpoint
+	// The port to listen on for Prometheus-Endpoint.
 	HTTPPort string
-	// URL for metrics-endpoint
+	// The URL for prometheus' metrics-endpoint.
 	HTTPEndpoint string
 
-	// Time to wait between probe-attempts
+	// The time to wait between probe-attempts.
 	MonitoringInterval time.Duration
-	// Time between start of monitoring-goroutines
+	// The time between start of monitoring-goroutines.
 	StartupOffset time.Duration
-	// Time to wait until mail_deliver_success = 0 is reported
+	// The time to wait until mail_deliver_success = 0 is reported.
 	MailCheckTimeout time.Duration
 
-	// SMTP-Servers used for probing
+	// SMTP-Servers used for probing.
 	Servers []SMTPServerConfig
 }
 
 type SMTPServerConfig struct {
-	// name the probing attempts via this server are classified with
+	// The name the probing attempts via this server are classified with.
 	Name string
-	// SMTP-serveraddress
+	// The address of the SMTP-server.
 	Server string
-	// SMTP-serverport
+	// The port of the SMTP-server.
 	Port string
-	// SMTP-username
+	// The username for the SMTP-server.
 	Login string
-	// SMTP-passphrase
+	// The SMTP-user's passphrase.
 	Passphrase string
-	// probing-mail-sender-address
+	// The sender-address for the probing mails.
 	From string
-	// probing-mail-destination
+	// The destination the probing-mails are sent to.
 	To           string
+	// The directory in which mails sent by this server will end up if delivered correctly.
 	Detectiondir string
 }
 
@@ -96,6 +97,7 @@ type email struct {
 }
 
 // prometheus-instrumentation
+
 var deliver_ok = prometheus.NewGaugeVec(
 	prometheus.GaugeOpts{
 		Name: "mail_deliver_success",
@@ -197,7 +199,6 @@ func send(c SMTPServerConfig, msg string) {
 // triggered and stuff like that, therefore use
 // fmt.Printf("%q", unprintableString) for that
 func randString(length int) string {
-
 	stuff := make([]byte, length)
 
 	for i := range stuff {
@@ -227,22 +228,22 @@ func deleteMail(m email) {
 }
 
 // composePayload composes a payload to be used in probing mails for identification
-// consisting of config name, unix time and padding of appropriate length
+// consisting of config name, unix time and padding of appropriate length.
 func composePayload(name string, unixtimestamp int64) (payload string, token string) {
 	timestampstr := strconv.FormatInt(unixtimestamp, 10)
 	remainingLength := contentLength - len(name) - len(timestampstr) - 2 // 2 for two delimiters
 
-	// now get the token to have a unique token and use it to pad to full contentLength
+	// Now get the token to have a unique token and use it to pad to full contentLength.
 	token = randString(remainingLength)
 
-	payload = name + "-" + token + "-" + timestampstr
+	payload = strings.Join([]string{name,token,timestampstr}, "-")
 	promlog.Debug("composed payload:", payload)
 
 	return payload, token
 }
 
-// decomposePayload return the config name and unix timestamp as appropriate types
-// from given payload
+// decomposePayload returns the config name and unix timestamp as appropriate types
+// from given payload.
 func decomposePayload(payload []byte) (name string, token string, extractedUnixTime int64, err error) {
 	// is the length correct?
 	if len(payload) != contentLength {
@@ -277,20 +278,20 @@ func lateMail(m email) {
 // probe probes if mail gets through the entire chain from specified SMTPServer into Maildir.
 // the argument "reportChans" contains channels to each monitoring goroutine where to drop
 // the found mails into.
-func probe(c SMTPServerConfig, reportChans map[string]chan email) {
+func probe(c SMTPServerConfig, reportChan chan email) {
 	payload, token := composePayload(c.Name, time.Now().UnixNano())
 	send(c, payload)
 
 	timeout := time.After(globalconf.MailCheckTimeout)
 
-	// "for seekingMail" is needed to account for mails that are coming late.
+	// the seekloop is needed to account for mails that are coming late.
 	// Otherwise, a late mail would trigger the first case and stop us from
 	// being able to detect the mail we are actually waiting for
 
 seekloop:
 	for {
 		select {
-		case mail := <-reportChans[c.Name]:
+		case mail := <-reportChan:
 			promlog.Debug("getting mail...")
 
 			// timestamps are in nanoseconds
@@ -320,14 +321,13 @@ seekloop:
 	}
 }
 
-// monitor probes every $(globalconf.MonitoringInterval) if mail still gets through.
-func monitor(c SMTPServerConfig, reportChans map[string]chan email) {
+// monitor probes every MonitoringInterval if mail still gets through.
+func monitor(c SMTPServerConfig, reportChan chan email) {
 	log.Println("Started monitoring for config", c.Name)
 	for {
-		probe(c, reportChans)
+		probe(c, reportChan)
 		time.Sleep(globalconf.MonitoringInterval)
 	}
-	//wg.Done()
 }
 
 // secret returns secret for basic http-auth
@@ -346,9 +346,7 @@ func detectMail(watcher *fsnotify.Watcher, reportChans map[string]chan email) {
 		select {
 		case event := <-watcher.Events:
 			if event.Op&fsnotify.Create == fsnotify.Create {
-				mail, err := parseMail(event.Name)
-
-				if err == nil {
+				if mail, err := parseMail(event.Name); err == nil {
 					reportChans[mail.Name] <- mail
 				}
 			}
@@ -364,8 +362,14 @@ func parseMail(path string) (email, error) {
 	t := time.Now().UnixNano()
 
 	// try parsing
-	content, _ := ioutil.ReadFile(path)
-	mail, err := mail.ReadMessage(bytes.NewReader(content))
+	f, err := os.Open(path)
+	if err != nil {
+	    return email{}, err
+	}
+	mail, err := mail.ReadMessage(f)
+	if err != nil {
+	    return email{}, err
+	}
 
 	payload := make([]byte, contentLength)
 	mail.Body.Read(payload)
@@ -418,7 +422,7 @@ func main() {
 
 	// now fire up the monitoring jobs
 	for _, c := range globalconf.Servers {
-		go monitor(c, reportChans)
+		go monitor(c, reportChans[c.Name])
 
 		// keep a timedelta between monitoring jobs to reduce interference
 		// (although that shouldn't be an issue)
