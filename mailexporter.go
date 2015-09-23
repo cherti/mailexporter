@@ -23,7 +23,7 @@ import (
 	"gopkg.in/yaml.v2"
 )
 
-var tokenLength = 40 // length of payload for probing-mails
+var tokenLength = 40 // length of token for probing-mails
 
 // holds a configuration of external server to send test mails
 var globalconf struct {
@@ -162,8 +162,8 @@ func init() {
 }
 
 // parseConfig parses configuration file and tells us if we are ready to rumble.
-func parseConfig(path string) error {
-	content, err := ioutil.ReadFile(path)
+func parseConfig(r io.Reader) error {
+	content, err := ioutil.ReadAll(r)
 	if err != nil {
 		return err
 	}
@@ -190,7 +190,7 @@ func send(c SMTPServerConfig, msg string) {
 	}
 }
 
-// randString returns a random string to pad the send mail with for identifying
+// generateToken returns a random string to pad the send mail with for identifying
 // it later in the maildir (and not mistake another one for it)
 // does also return unprintable characters in returned string,
 // which is actually appreciated to implicitly monitor that
@@ -199,7 +199,7 @@ func send(c SMTPServerConfig, msg string) {
 // be aware of funny side-effects like terminal commands being
 // triggered and stuff like that, therefore use
 // fmt.Printf("%q", unprintableString) for that
-func randString(length int) string {
+func generateToken(length int) string {
 	stuff := make([]byte, length)
 
 	for i := range stuff {
@@ -234,7 +234,7 @@ func composePayload(name string, unixtimestamp int64) (payload string, token str
 	timestampstr := strconv.FormatInt(unixtimestamp, 10)
 
 	// Now get the token to have a unique token.
-	token = randString(tokenLength)
+	token = generateToken(tokenLength)
 
 	payload = strings.Join([]string{name,token,timestampstr}, "-")
 	promlog.Debug("composed payload:", payload)
@@ -398,10 +398,17 @@ func main() {
 	// from earlier starts of the binary
 	rand.Seed(time.Now().Unix())
 
-	err := parseConfig(*confPath)
+	f, err := os.Open(*confPath)
 	if err != nil {
 		promlog.Fatal(err)
 	}
+
+	err = parseConfig(f)
+	f.Close()
+	if err != nil {
+		promlog.Fatal(err)
+	}
+
 
 	// initialize Metrics that will be used seldom so that they actually get exported with a metric
 	for _, c := range globalconf.Servers {
