@@ -67,7 +67,7 @@ type SMTPServerConfig struct {
 	// The sender-address for the probing mails.
 	From string
 	// The destination the probing-mails are sent to.
-	To           string
+	To string
 	// The directory in which mails sent by this server will end up if delivered correctly.
 	Detectiondir string
 }
@@ -236,7 +236,7 @@ func composePayload(name string, unixtimestamp int64) (payload string, token str
 	// Now get the token to have a unique token.
 	token = generateToken(tokenLength)
 
-	payload = strings.Join([]string{name,token,timestampstr}, "-")
+	payload = strings.Join([]string{name, token, timestampstr}, "-")
 	promlog.Debug("composed payload:", payload)
 
 	return payload, token
@@ -245,12 +245,6 @@ func composePayload(name string, unixtimestamp int64) (payload string, token str
 // decomposePayload returns the config name and unix timestamp as appropriate types
 // from given payload.
 func decomposePayload(payload []byte) (name string, token string, extractedUnixTime int64, err error) {
-	// is the length correct?
-	//if len(payload) != contentLength {
-	//	log.Println("payload-length:", len(payload))
-	//	return "", "", -1, ErrNotOurDept
-	//}
-
 	promlog.Debug("payload to decompose:", payload)
 
 	decomp := strings.Split(string(payload), "-")
@@ -365,13 +359,13 @@ func parseMail(path string) (email, error) {
 	// try parsing
 	f, err := os.Open(path)
 	if err != nil {
-	    return email{}, err
+		return email{}, err
 	}
 	defer f.Close()
 
 	mail, err := mail.ReadMessage(io.LimitReader(f, 8192))
 	if err != nil {
-	    return email{}, err
+		return email{}, err
 	}
 
 	payload, err := ioutil.ReadAll(mail.Body)
@@ -408,7 +402,6 @@ func main() {
 	if err != nil {
 		promlog.Fatal(err)
 	}
-
 
 	// initialize Metrics that will be used seldom so that they actually get exported with a metric
 	for _, c := range globalconf.Servers {
