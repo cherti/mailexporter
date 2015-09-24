@@ -25,6 +25,60 @@ import (
 
 var tokenLength = 40 // length of token for probing-mails
 
+// muxer is used to map probe-tokens to channels where the detection-goroutine should put the found mails.
+var muxer = make( map[string] chan email )
+
+type payload struct {
+	configname string
+	token string
+	timestamp int64
+}
+
+// composePayload composes a payload to be used in probing mails for identification
+// consisting of config name, unix time and a unique token for identification.
+func newPayload(confname string) (payload) {
+	//timestamp := strconv.FormatInt(time.Now().UnixNano(), 10)
+
+	// Now get the token to have a unique token.
+	token := generateToken(tokenLength)
+
+	//payload = strings.Join([]string{name, token, time.Now().UnixNano()}, "-")
+	p := payload{confname, token, time.Now().UnixNano()}
+	promlog.Debug("composed payload:", p)
+
+	return p
+}
+
+func (p payload) String() string {
+	return strings.Join([]string{p.configname, p.token, p.timestring()}, "-")
+}
+
+func (p payload) timestring() string {
+	return strconv.FormatInt(p.timestamp, 10)
+}
+
+// decomposePayload returns the config name and unix timestamp as appropriate types
+// from given payload.
+func decomposePayload(input []byte) (payload, error) {
+	promlog.Debug("payload to decompose:", input)
+
+	decomp := strings.Split(string(input), "-")
+	// is it correctly parsable?
+	if len(decomp) != 3 {
+		promlog.Debug("no fitting decomp")
+		return payload{}, ErrNotOurDept
+	}
+
+	extractedUnixTime, err := strconv.ParseInt(decomp[2], 10, 64)
+	// is the last one a unix-timestamp?
+	if err != nil {
+		promlog.Debug("unix-timestamp-parse-error")
+		return payload{}, ErrNotOurDept
+	}
+
+	return payload{decomp[0], decomp[1], extractedUnixTime}, nil
+}
+
 // holds a configuration of external server to send test mails
 var globalconf struct {
 	// The path to the TLS-Public-Key.
@@ -228,41 +282,6 @@ func deleteMail(m email) {
 	promlog.Debug("rm ", m.Filename)
 }
 
-// composePayload composes a payload to be used in probing mails for identification
-// consisting of config name, unix time and a unique token for identification.
-func composePayload(name string, unixtimestamp int64) (payload string, token string) {
-	timestampstr := strconv.FormatInt(unixtimestamp, 10)
-
-	// Now get the token to have a unique token.
-	token = generateToken(tokenLength)
-
-	payload = strings.Join([]string{name, token, timestampstr}, "-")
-	promlog.Debug("composed payload:", payload)
-
-	return payload, token
-}
-
-// decomposePayload returns the config name and unix timestamp as appropriate types
-// from given payload.
-func decomposePayload(payload []byte) (name string, token string, extractedUnixTime int64, err error) {
-	promlog.Debug("payload to decompose:", payload)
-
-	decomp := strings.Split(string(payload), "-")
-	// is it correctly parsable?
-	if len(decomp) != 3 {
-		promlog.Debug("no fitting decomp")
-		return "", "", -1, ErrNotOurDept
-	}
-
-	extractedUnixTime, err = strconv.ParseInt(decomp[2], 10, 64)
-	// is the last one a unix-timestamp?
-	if err != nil {
-		promlog.Debug("unix-timestamp-parse-error")
-		return "", "", -1, ErrNotOurDept
-	}
-
-	return decomp[0], decomp[1], extractedUnixTime, nil
-}
 
 // lateMail logs mails that have been so late that they timed out
 func lateMail(m email) {
@@ -273,54 +292,33 @@ func lateMail(m email) {
 // probe probes if mail gets through the entire chain from specified SMTPServer into Maildir.
 // the argument "reportChans" contains channels to each monitoring goroutine where to drop
 // the found mails into.
-func probe(c SMTPServerConfig, reportChan chan email) {
-	payload, token := composePayload(c.Name, time.Now().UnixNano())
-	send(c, payload)
+func probe(c SMTPServerConfig, p payload) {
+	muxer[p.token] = make(chan email)
+	defer delete(muxer, p.token)
+
+	//send(c, string(p))
+	send(c, p.String())
 
 	timeout := time.After(globalconf.MailCheckTimeout)
+	select {
+	case mail := <-muxer[p.token]:
+		promlog.Debug("checking mail for timeout")
 
-	// the seekloop is needed to account for mails that are coming late.
-	// Otherwise, a late mail would trigger the first case and stop us from
-	// being able to detect the mail we are actually waiting for
+		deliver_ok.WithLabelValues(c.Name).Set(1)
+		deleteMail(mail)
 
-seekloop:
-	for {
-		select {
-		case mail := <-reportChan:
-			promlog.Debug("getting mail...")
-
-			// timestamps are in nanoseconds
-			// last_mail_deliver_time shall be standard unix-timestamp
-			// last_mail_deliver_duration shall be milliseconds for higher resolution
-			deliverTime := float64(mail.T_recv / int64(time.Second))
-			deliverDuration := float64((mail.T_recv - mail.T_sent) / int64(time.Millisecond))
-			last_mail_deliver_time.WithLabelValues(c.Name).Set(deliverTime)
-			last_mail_deliver_duration.WithLabelValues(c.Name).Set(deliverDuration)
-			mail_deliver_durations.WithLabelValues(c.Name).Observe(deliverDuration)
-
-			if mail.Token == token {
-				// we obtained the expected mail
-				deliver_ok.WithLabelValues(c.Name).Set(1)
-				deleteMail(mail)
-				break seekloop
-
-			}
-			// it was another mail with unfitting token, probably late
-			lateMail(mail)
-
-		case <-timeout:
-			promlog.Debug("Getting mail timed out.")
-			deliver_ok.WithLabelValues(c.Name).Set(0)
-			break seekloop
-		}
+	case <-timeout:
+		promlog.Debug("Getting mail timed out.")
+		deliver_ok.WithLabelValues(c.Name).Set(0)
 	}
 }
 
 // monitor probes every MonitoringInterval if mail still gets through.
-func monitor(c SMTPServerConfig, reportChan chan email) {
+func monitor(c SMTPServerConfig) {
 	log.Println("Started monitoring for config", c.Name)
 	for {
-		probe(c, reportChan)
+		p := newPayload(c.Name)
+		go probe(c, p)
 		time.Sleep(globalconf.MonitoringInterval)
 	}
 }
@@ -334,15 +332,31 @@ func secret(user, realm string) string {
 }
 
 // detectMail monitors Detectiondirs and reports mails that come in.
-func detectMail(watcher *fsnotify.Watcher, reportChans map[string]chan email) {
+func detectMail(watcher *fsnotify.Watcher) {
 	log.Println("Started mail-detection.")
 
 	for {
 		select {
 		case event := <-watcher.Events:
 			if event.Op&fsnotify.Create == fsnotify.Create {
-				if mail, err := parseMail(event.Name); err == nil {
-					reportChans[mail.Name] <- mail
+				if foundMail, err := parseMail(event.Name); err == nil {
+
+					// first of all: classify the mail
+					// timestamps are in nanoseconds
+					// last_mail_deliver_time shall be standard unix-timestamp
+					// last_mail_deliver_duration shall be milliseconds for higher resolution
+					deliverTime := float64(foundMail.T_recv / int64(time.Second))
+					deliverDuration := float64((foundMail.T_recv - foundMail.T_sent) / int64(time.Millisecond))
+					last_mail_deliver_time.WithLabelValues(foundMail.Name).Set(deliverTime)
+					last_mail_deliver_duration.WithLabelValues(foundMail.Name).Set(deliverDuration)
+					mail_deliver_durations.WithLabelValues(foundMail.Name).Observe(deliverDuration)
+
+					// then hand over so the timeout is judged
+					if ch, ok := muxer[foundMail.Token]; ok {
+						ch <- foundMail
+					} else {
+						lateMail(foundMail)
+					}
 				}
 			}
 		case err := <-watcher.Errors:
@@ -368,20 +382,20 @@ func parseMail(path string) (email, error) {
 		return email{}, err
 	}
 
-	payload, err := ioutil.ReadAll(mail.Body)
+	payl, err := ioutil.ReadAll(mail.Body)
 	if err != nil {
 		return email{}, err
 	}
-	payload = bytes.TrimSpace(payload) // mostly for trailing "\n"
+	payloadbytes := bytes.TrimSpace(payl) // mostly for trailing "\n"
 
-	name, token, unixtime, err := decomposePayload(payload)
+	p, err := decomposePayload(payloadbytes)
 	// return if parsable
 	// (non-parsable mails are not sent by us (or broken) and therefore not needed
 	if err != nil {
 		return email{}, ErrNotOurDept
 	}
 
-	return email{path, name, token, unixtime, t}, nil
+	return email{path, p.configname, p.token, p.timestamp, t}, nil
 }
 
 func main() {
@@ -424,11 +438,11 @@ func main() {
 		promlog.Debug("adding path to watcher:", c.Detectiondir)
 	}
 
-	go detectMail(fswatcher, reportChans)
+	go detectMail(fswatcher)
 
 	// now fire up the monitoring jobs
 	for _, c := range globalconf.Servers {
-		go monitor(c, reportChans[c.Name])
+		go monitor(c)
 
 		// keep a timedelta between monitoring jobs to reduce interference
 		// (although that shouldn't be an issue)
