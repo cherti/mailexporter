@@ -26,17 +26,17 @@ import (
 var tokenLength = 40 // length of token for probing-mails
 
 // muxer is used to map probe-tokens to channels where the detection-goroutine should put the found mails.
-var muxer = make( map[string] chan email )
+var muxer = make(map[string]chan email)
 
 type payload struct {
 	configname string
-	token string
-	timestamp int64
+	token      string
+	timestamp  int64
 }
 
 // composePayload composes a payload to be used in probing mails for identification
 // consisting of config name, unix time and a unique token for identification.
-func newPayload(confname string) (payload) {
+func newPayload(confname string) payload {
 	//timestamp := strconv.FormatInt(time.Now().UnixNano(), 10)
 
 	// Now get the token to have a unique token.
@@ -140,15 +140,15 @@ var (
 // holds information about probing-email with the corresponding file name
 type email struct {
 	// filename of the mailfile
-	Filename string
+	filename string
 	// name of the configuration the mail originated from
-	Name string
+	configname string
 	// unique token to identify the mail even if timings and name are exactly the same
-	Token string
+	token string
 	// time the mail was sent as unix-timestamp
-	T_sent int64
+	t_sent int64
 	// time the mail was detected as unix-timestamp
-	T_recv int64
+	t_recv int64
 }
 
 // prometheus-instrumentation
@@ -276,17 +276,16 @@ func generateToken(length int) string {
 
 // deleteMail delete the given mail to not leave an untidied maildir.
 func deleteMail(m email) {
-	if err := os.Remove(m.Filename); err != nil {
+	if err := os.Remove(m.filename); err != nil {
 		promlog.Warn(err)
 	}
-	promlog.Debug("rm ", m.Filename)
+	promlog.Debug("rm ", m.filename)
 }
-
 
 // lateMail logs mails that have been so late that they timed out
 func lateMail(m email) {
-	promlog.Debug("got late mail via", m.Name)
-	late_mails.WithLabelValues(m.Name).Inc()
+	promlog.Debug("got late mail via", m.configname)
+	late_mails.WithLabelValues(m.configname).Inc()
 }
 
 // probe probes if mail gets through the entire chain from specified SMTPServer into Maildir.
@@ -345,14 +344,14 @@ func detectMail(watcher *fsnotify.Watcher) {
 					// timestamps are in nanoseconds
 					// last_mail_deliver_time shall be standard unix-timestamp
 					// last_mail_deliver_duration shall be milliseconds for higher resolution
-					deliverTime := float64(foundMail.T_recv / int64(time.Second))
-					deliverDuration := float64((foundMail.T_recv - foundMail.T_sent) / int64(time.Millisecond))
-					last_mail_deliver_time.WithLabelValues(foundMail.Name).Set(deliverTime)
-					last_mail_deliver_duration.WithLabelValues(foundMail.Name).Set(deliverDuration)
-					mail_deliver_durations.WithLabelValues(foundMail.Name).Observe(deliverDuration)
+					deliverTime := float64(foundMail.t_recv / int64(time.Second))
+					deliverDuration := float64((foundMail.t_recv - foundMail.t_sent) / int64(time.Millisecond))
+					last_mail_deliver_time.WithLabelValues(foundMail.configname).Set(deliverTime)
+					last_mail_deliver_duration.WithLabelValues(foundMail.configname).Set(deliverDuration)
+					mail_deliver_durations.WithLabelValues(foundMail.configname).Observe(deliverDuration)
 
 					// then hand over so the timeout is judged
-					if ch, ok := muxer[foundMail.Token]; ok {
+					if ch, ok := muxer[foundMail.token]; ok {
 						ch <- foundMail
 					} else {
 						lateMail(foundMail)
