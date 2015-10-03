@@ -27,6 +27,8 @@ var tokenLength = 40 // length of token for probing-mails
 
 // muxer is used to map probe-tokens to channels where the detection-goroutine should put the found mails.
 var muxer = make(map[string]chan email)
+
+// dispose token is used in probe to announce which tokens are no longer used for waiting for mails
 var disposeToken = make(chan string)
 
 type payload struct {
@@ -290,11 +292,8 @@ func lateMail(m email) {
 }
 
 // probe probes if mail gets through the entire chain from specified SMTPServer into Maildir.
-// the argument "reportChans" contains channels to each monitoring goroutine where to drop
-// the found mails into.
 func probe(c SMTPServerConfig, p payload) {
 	muxer[p.token] = make(chan email)
-	defer disposeToken <- p.token
 
 	//send(c, string(p))
 	send(c, p.String())
@@ -311,6 +310,8 @@ func probe(c SMTPServerConfig, p payload) {
 		promlog.Debug("Getting mail timed out.")
 		deliver_ok.WithLabelValues(c.Name).Set(0)
 	}
+
+	disposeToken <- p.token
 }
 
 // monitor probes every MonitoringInterval if mail still gets through.
@@ -331,8 +332,22 @@ func secret(user, realm string) string {
 	return ""
 }
 
-// detectMail monitors Detectiondirs and reports mails that come in.
-func detectMail(watcher *fsnotify.Watcher) {
+// classifyMailMetrics extracts all general mail metrics such as deliver duration etc.
+// from a mail struct and sets the corresponding metrics
+func classifyMailMetrics(foundMail email) {
+	// timestamps are in nanoseconds
+	// last_mail_deliver_time shall be standard unix-timestamp
+	// last_mail_deliver_duration shall be milliseconds for higher resolution
+	deliverTime := float64(foundMail.t_recv / int64(time.Second))
+	deliverDuration := float64((foundMail.t_recv - foundMail.t_sent) / int64(time.Millisecond))
+	last_mail_deliver_time.WithLabelValues(foundMail.configname).Set(deliverTime)
+	last_mail_deliver_duration.WithLabelValues(foundMail.configname).Set(deliverDuration)
+	mail_deliver_durations.WithLabelValues(foundMail.configname).Observe(deliverDuration)
+}
+
+// detectAndMuxMail monitors Detectiondirs, reports mails that come in to the goroutine they belong to
+// and takes care of removing unneeded report channels
+func detectAndMuxMail(watcher *fsnotify.Watcher) {
 	log.Println("Started mail-detection.")
 
 	for {
@@ -342,14 +357,7 @@ func detectMail(watcher *fsnotify.Watcher) {
 				if foundMail, err := parseMail(event.Name); err == nil {
 
 					// first of all: classify the mail
-					// timestamps are in nanoseconds
-					// last_mail_deliver_time shall be standard unix-timestamp
-					// last_mail_deliver_duration shall be milliseconds for higher resolution
-					deliverTime := float64(foundMail.t_recv / int64(time.Second))
-					deliverDuration := float64((foundMail.t_recv - foundMail.t_sent) / int64(time.Millisecond))
-					last_mail_deliver_time.WithLabelValues(foundMail.configname).Set(deliverTime)
-					last_mail_deliver_duration.WithLabelValues(foundMail.configname).Set(deliverDuration)
-					mail_deliver_durations.WithLabelValues(foundMail.configname).Observe(deliverDuration)
+					classifyMailMetrics(foundMail)
 
 					// then hand over so the timeout is judged
 					if ch, ok := muxer[foundMail.token]; ok {
@@ -362,7 +370,7 @@ func detectMail(watcher *fsnotify.Watcher) {
 		case err := <-watcher.Errors:
 			promlog.Warn("watcher-error:", err)
 		case token := <-disposeToken:
-			// deletion of channels is done here to ensure proper closing
+			// deletion of channels is done here to avoid interference with the report-case of this goroutine
 			close(muxer[token])
 			delete(muxer, token)
 		}
@@ -433,16 +441,12 @@ func main() {
 
 	defer fswatcher.Close()
 
-	// reportChans will be used to send found mails from the detection-goroutine to the monitoring-goroutines
-	reportChans := make(map[string]chan email)
-
 	for _, c := range globalconf.Servers {
-		fswatcher.Add(c.Detectiondir) // deduplication is done within fsnotify
-		reportChans[c.Name] = make(chan email)
 		promlog.Debug("adding path to watcher:", c.Detectiondir)
+		fswatcher.Add(c.Detectiondir) // deduplication is done within fsnotify
 	}
 
-	go detectMail(fswatcher)
+	go detectAndMuxMail(fswatcher)
 
 	// now fire up the monitoring jobs
 	for _, c := range globalconf.Servers {
