@@ -27,6 +27,7 @@ var tokenLength = 40 // length of token for probing-mails
 
 // muxer is used to map probe-tokens to channels where the detection-goroutine should put the found mails.
 var muxer = make(map[string]chan email)
+var disposeToken = make(chan string)
 
 type payload struct {
 	configname string
@@ -293,7 +294,7 @@ func lateMail(m email) {
 // the found mails into.
 func probe(c SMTPServerConfig, p payload) {
 	muxer[p.token] = make(chan email)
-	defer delete(muxer, p.token)
+	defer disposeToken <- p.token
 
 	//send(c, string(p))
 	send(c, p.String())
@@ -360,6 +361,10 @@ func detectMail(watcher *fsnotify.Watcher) {
 			}
 		case err := <-watcher.Errors:
 			promlog.Warn("watcher-error:", err)
+		case token := <-disposeToken:
+			// deletion of channels is done here to ensure proper closing
+			close(muxer[token])
+			delete(muxer, token)
 		}
 	}
 }
