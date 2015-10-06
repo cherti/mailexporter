@@ -16,6 +16,7 @@ The following metrics are exported, for each metric there is one instance per pr
 * `last_mail_deliver_duration`: time it took for the last received mail to be delivered (doesn't matter if timed out or not) in milliseconds
 * `late_mails`: number of probing-mails being received after their respective timeout
 * `mail_deliver_durations`: histogram of `last_mail_deliver_duration` with 50ms-buckets up to 100s currently (to observe even massively late mails)
+* `mail_send_fails`: indicates the number of failed attempts to send a probing mail via the specified SMTP-Server
 
 ## Building and running
 
@@ -24,10 +25,11 @@ The following metrics are exported, for each metric there is one instance per pr
     # get dependencies
     go get -u "github.com/prometheus/client_golang/prometheus"
     go get -u "gopkg.in/yaml.v2"
-    go get -u auth "github.com/abbot/go-http-auth"
+    go get -u "github.com/abbot/go-http-auth"
     
     # actually build and run
     git clone https://github.com/cherti/mailexporter.git
+    cd mailexporter
     go build mailexporter.go
     ./mailexporter
 

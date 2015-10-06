@@ -188,6 +188,14 @@ var late_mails = prometheus.NewCounterVec(
 	[]string{"configname"},
 )
 
+var mail_send_fails = prometheus.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "mail_send_fails",
+		Help: "number of failed attempts to send a probing mail via specified SMTP-server",
+	},
+	[]string{"configname"},
+)
+
 var mail_deliver_durations = prometheus.NewHistogramVec(
 	prometheus.HistogramOpts{
 		Name:    "mail_deliver_durations",
@@ -196,6 +204,7 @@ var mail_deliver_durations = prometheus.NewHistogramVec(
 	},
 	[]string{"configname"},
 )
+
 
 // histBuckets returns a linearly spaced []float64 to be used as Buckets in a prometheus.Histogram.
 func histBuckets(upperBound float64, binSize float64) []float64 {
@@ -237,14 +246,16 @@ func parseConfig(r io.Reader) error {
 }
 
 // send sends a probing-email over SMTP-server specified in config c to be waited for on the receiving side.
-func send(c SMTPServerConfig, msg string) {
+func send(c SMTPServerConfig, msg string) error {
 	promlog.Debug("sending mail")
 	a := smtp.PlainAuth("", c.Login, c.Passphrase, c.Server)
 	err := smtp.SendMail(c.Server+":"+c.Port, a, c.From, []string{c.To}, []byte(msg))
 
 	if err != nil {
-		promlog.Warn(err)
+		return err
 	}
+
+	return nil
 }
 
 // generateToken returns a random string to pad the send mail with for identifying
@@ -296,7 +307,13 @@ func probe(c SMTPServerConfig, p payload) {
 	muxer[p.token] = make(chan email)
 
 	//send(c, string(p))
-	send(c, p.String())
+	err := send(c, p.String())
+	if err != nil {
+		promlog.Warnf("error sending probe-mail via %s: %s; skipping attempt", c.Name, err)
+		mail_send_fails.WithLabelValues(c.Name).Inc()
+		disposeToken <- p.token
+		return
+	}
 
 	timeout := time.After(globalconf.MailCheckTimeout)
 	select {
