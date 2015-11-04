@@ -225,6 +225,7 @@ func init() {
 	prometheus.MustRegister(late_mails)
 	prometheus.MustRegister(last_mail_deliver_duration)
 	prometheus.MustRegister(mail_deliver_durations)
+	prometheus.MustRegister(mail_send_fails)
 }
 
 func milliseconds(d time.Duration) int64 {
@@ -453,6 +454,7 @@ func main() {
 	// initialize Metrics that will be used seldom so that they actually get exported with a metric
 	for _, c := range globalconf.Servers {
 		late_mails.GetMetricWithLabelValues(c.Name)
+		mail_send_fails.GetMetricWithLabelValues(c.Name)
 	}
 
 	fswatcher, err := fsnotify.NewWatcher()
