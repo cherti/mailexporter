@@ -149,9 +149,9 @@ type email struct {
 	// unique token to identify the mail even if timings and name are exactly the same
 	token string
 	// time the mail was sent as unix-timestamp
-	t_sent int64
+	t_sent time.Time
 	// time the mail was detected as unix-timestamp
-	t_recv int64
+	t_recv time.Time
 }
 
 // prometheus-instrumentation
@@ -227,6 +227,10 @@ func init() {
 	prometheus.MustRegister(mail_deliver_durations)
 }
 
+func milliseconds(d time.Duration) int64 {
+	return d.Nanoseconds()/int64(time.Millisecond)
+}
+
 // parseConfig parses configuration file and tells us if we are ready to rumble.
 func parseConfig(r io.Reader) error {
 	content, err := ioutil.ReadAll(r)
@@ -298,7 +302,7 @@ func deleteMail(m email) {
 
 // lateMail logs mails that have been so late that they timed out
 func lateMail(m email) {
-	promlog.Debug("got late mail via", m.configname)
+	promlog.Debug("got late mail via %s; mail took %d ms", m.configname, milliseconds(m.t_recv.Sub(m.t_sent)))
 	late_mails.WithLabelValues(m.configname).Inc()
 }
 
@@ -355,8 +359,8 @@ func classifyMailMetrics(foundMail email) {
 	// timestamps are in nanoseconds
 	// last_mail_deliver_time shall be standard unix-timestamp
 	// last_mail_deliver_duration shall be milliseconds for higher resolution
-	deliverTime := float64(foundMail.t_recv / int64(time.Second))
-	deliverDuration := float64((foundMail.t_recv - foundMail.t_sent) / int64(time.Millisecond))
+	deliverTime := float64(foundMail.t_recv.Unix())
+	deliverDuration := float64(milliseconds(foundMail.t_recv.Sub(foundMail.t_sent)))
 	last_mail_deliver_time.WithLabelValues(foundMail.configname).Set(deliverTime)
 	last_mail_deliver_duration.WithLabelValues(foundMail.configname).Set(deliverDuration)
 	mail_deliver_durations.WithLabelValues(foundMail.configname).Observe(deliverDuration)
@@ -397,7 +401,7 @@ func detectAndMuxMail(watcher *fsnotify.Watcher) {
 // parseMail reads a mailfile's content and parses it into a mail-struct if one of ours.
 func parseMail(path string) (email, error) {
 	// to date the mails found
-	t := time.Now().UnixNano()
+	t := time.Now()
 
 	// try parsing
 	f, err := os.Open(path)
@@ -424,7 +428,7 @@ func parseMail(path string) (email, error) {
 		return email{}, ErrNotOurDept
 	}
 
-	return email{path, p.configname, p.token, p.timestamp, t}, nil
+	return email{path, p.configname, p.token, time.Unix(0, p.timestamp), t}, nil
 }
 
 func main() {
