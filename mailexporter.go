@@ -38,8 +38,8 @@ type payload struct {
 	timestamp  int64
 }
 
-// composePayload composes a payload to be used in probing mails for identification
-// consisting of config name, unix time and a unique token for identification.
+// newPayload composes a payload to be used in probing mails for identification consisting
+// of config name, unix time and a unique token for identification and returns it.
 func newPayload(confname string) payload {
 	//timestamp := strconv.FormatInt(time.Now().UnixNano(), 10)
 
