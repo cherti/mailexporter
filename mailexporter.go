@@ -167,7 +167,7 @@ var deliver_ok = prometheus.NewGaugeVec(
 
 var last_mail_deliver_time = prometheus.NewGaugeVec(
 	prometheus.GaugeOpts{
-		Name: "last_mail_deliver_time",
+		Name: "mail_last_deliver_time",
 		Help: "timestamp (in s) of detection of last correctly received testmail",
 	},
 	[]string{"configname"},
@@ -175,7 +175,7 @@ var last_mail_deliver_time = prometheus.NewGaugeVec(
 
 var last_mail_deliver_duration = prometheus.NewGaugeVec(
 	prometheus.GaugeOpts{
-		Name: "last_mail_deliver_duration",
+		Name: "mail_last_deliver_duration",
 		Help: "duration (in ms) of delivery of last correctly received testmail",
 	},
 	[]string{"configname"},
@@ -183,7 +183,7 @@ var last_mail_deliver_duration = prometheus.NewGaugeVec(
 
 var late_mails = prometheus.NewCounterVec(
 	prometheus.CounterOpts{
-		Name: "late_mails",
+		Name: "mail_late_mails",
 		Help: "number of probing-mails received after their respective timeout",
 	},
 	[]string{"configname"},
