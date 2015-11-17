@@ -24,6 +24,7 @@ import (
 )
 
 var tokenLength = 40 // length of token for probing-mails
+const tokenChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
 // muxer is used to map probe-tokens to channels where the detection-goroutine should put the found mails.
 var muxer = make(map[string]chan email)
@@ -265,32 +266,15 @@ func send(c SMTPServerConfig, msg string) error {
 
 // generateToken returns a random string to pad the send mail with for identifying
 // it later in the maildir (and not mistake another one for it)
-// does also return unprintable characters in returned string,
-// which is actually appreciated to implicitly monitor that
-// mail gets through unchanged
-// although, if you would print those unprintable characters,
-// be aware of funny side-effects like terminal commands being
-// triggered and stuff like that, therefore use
-// fmt.Printf("%q", unprintableString) for that
 func generateToken(length int) string {
 	stuff := make([]byte, length)
 
-	for i := range stuff {
-		stuff[i] = byte(rand.Int())
+	rand.Seed(time.Now().UTC().UnixNano())
+	for i := 0; i < length; i++ {
+		stuff[i] = tokenChars[rand.Intn(len(tokenChars))]
 	}
 
-	rstr := string(stuff)
-
-	// ensure no "-" are in the returned string
-	// as "-" is used later as a field splitter
-	rstr = strings.Replace(rstr, "-", "X", -1)
-
-	// ensure no ":" are in the returned string
-	// otherwise our payload might be made a header
-	// instead of the mailbody by mail.Send()
-	rstr = strings.Replace(rstr, ":", "X", -1)
-
-	return rstr
+	return string(stuff)
 }
 
 // deleteMail delete the given mail to not leave an untidied maildir.
