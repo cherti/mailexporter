@@ -289,6 +289,7 @@ func deleteMail(m email) {
 func lateMail(m email) {
 	promlog.Debug("got late mail via %s; mail took %d ms", m.configname, milliseconds(m.t_recv.Sub(m.t_sent)))
 	late_mails.WithLabelValues(m.configname).Inc()
+	deleteMail(m)
 }
 
 // probe probes if mail gets through the entire chain from specified SMTPServer into Maildir.
