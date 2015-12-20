@@ -254,8 +254,11 @@ func parseConfig(r io.Reader) error {
 // send sends a probing-email over SMTP-server specified in config c to be waited for on the receiving side.
 func send(c SMTPServerConfig, msg string) error {
 	promlog.Debug("sending mail")
+	fromheader := "From: " + c.From
+	subjectheader := "Subject: " + "mailexporter-probe"
+	fullmail := fromheader + "\n" + subjectheader + "\n" + msg
 	a := smtp.PlainAuth("", c.Login, c.Passphrase, c.Server)
-	err := smtp.SendMail(c.Server+":"+c.Port, a, c.From, []string{c.To}, []byte(msg))
+	err := smtp.SendMail(c.Server+":"+c.Port, a, c.From, []string{c.To}, []byte(fullmail))
 
 	if err != nil {
 		return err
