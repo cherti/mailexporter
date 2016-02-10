@@ -70,14 +70,14 @@ func decomposePayload(input []byte) (payload, error) {
 	// is it correctly parsable?
 	if len(decomp) != 3 {
 		promlog.Debug("no fitting decomp")
-		return payload{}, ErrNotOurDept
+		return payload{}, errNotOurDept
 	}
 
 	extractedUnixTime, err := strconv.ParseInt(decomp[2], 10, 64)
 	// is the last one a unix-timestamp?
 	if err != nil {
 		promlog.Debug("unix-timestamp-parse-error")
-		return payload{}, ErrNotOurDept
+		return payload{}, errNotOurDept
 	}
 
 	return payload{decomp[0], decomp[1], extractedUnixTime}, nil
@@ -108,10 +108,10 @@ var globalconf struct {
 	MailCheckTimeout time.Duration
 
 	// SMTP-Servers used for probing.
-	Servers []SMTPServerConfig
+	Servers []smtpServerConfig
 }
 
-type SMTPServerConfig struct {
+type smtpServerConfig struct {
 	// The name the probing attempts via this server are classified with.
 	Name string
 	// The address of the SMTP-server.
@@ -137,8 +137,8 @@ var (
 	useAuth  = flag.Bool("auth", true, "use HTTP-Basic-Auth for metrics-endpoint")
 
 	// errors
-	ErrMailNotFound = errors.New("no corresponding mail found")
-	ErrNotOurDept   = errors.New("no mail of ours")
+	errMailNotFound = errors.New("no corresponding mail found")
+	errNotOurDept   = errors.New("no mail of ours")
 )
 
 // holds information about probing-email with the corresponding file name
@@ -206,7 +206,6 @@ var mail_deliver_durations = prometheus.NewHistogramVec(
 	[]string{"configname"},
 )
 
-
 // histBuckets returns a linearly spaced []float64 to be used as Buckets in a prometheus.Histogram.
 func histBuckets(upperBound float64, binSize float64) []float64 {
 	bins := int(upperBound) / int(binSize)
@@ -230,7 +229,7 @@ func init() {
 }
 
 func milliseconds(d time.Duration) int64 {
-	return d.Nanoseconds()/int64(time.Millisecond)
+	return d.Nanoseconds() / int64(time.Millisecond)
 }
 
 // parseConfig parses configuration file and tells us if we are ready to rumble.
@@ -252,7 +251,7 @@ func parseConfig(r io.Reader) error {
 }
 
 // send sends a probing-email over SMTP-server specified in config c to be waited for on the receiving side.
-func send(c SMTPServerConfig, msg string) error {
+func send(c smtpServerConfig, msg string) error {
 	promlog.Debug("sending mail")
 	fromheader := "From: " + c.From
 	subjectheader := "Subject: " + "mailexporter-probe"
@@ -296,7 +295,7 @@ func lateMail(m email) {
 }
 
 // probe probes if mail gets through the entire chain from specified SMTPServer into Maildir.
-func probe(c SMTPServerConfig, p payload) {
+func probe(c smtpServerConfig, p payload) {
 	muxer[p.token] = make(chan email)
 
 	//send(c, string(p))
@@ -325,7 +324,7 @@ func probe(c SMTPServerConfig, p payload) {
 }
 
 // monitor probes every MonitoringInterval if mail still gets through.
-func monitor(c SMTPServerConfig) {
+func monitor(c smtpServerConfig) {
 	log.Println("Started monitoring for config", c.Name)
 	for {
 		p := newPayload(c.Name)
@@ -414,7 +413,7 @@ func parseMail(path string) (email, error) {
 	// return if parsable
 	// (non-parsable mails are not sent by us (or broken) and therefore not needed
 	if err != nil {
-		return email{}, ErrNotOurDept
+		return email{}, errNotOurDept
 	}
 
 	return email{path, p.configname, p.token, time.Unix(0, p.timestamp), t}, nil
