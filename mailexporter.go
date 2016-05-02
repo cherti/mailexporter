@@ -256,7 +256,14 @@ func send(c smtpServerConfig, msg string) error {
 	fromheader := "From: " + c.From
 	subjectheader := "Subject: " + "mailexporter-probe"
 	fullmail := fromheader + "\n" + subjectheader + "\n" + msg
-	a := smtp.PlainAuth("", c.Login, c.Passphrase, c.Server)
+
+	var a smtp.Auth;
+	if c.Login == "" && c.Passphrase == "" {  // if login and passphrase are left empty, skip authentication
+		a = nil
+	} else {
+		a = smtp.PlainAuth("", c.Login, c.Passphrase, c.Server)
+	}
+
 	err := smtp.SendMail(c.Server+":"+c.Port, a, c.From, []string{c.To}, []byte(fullmail))
 
 	if err != nil {

@@ -22,8 +22,8 @@ servers:
     - name: localhost                     # name for internal prometheus-metric
       server: localhost                   # SMTP-server to use
       port: 587                           # port to use on Server for SMTP
-      login: monitoring                   # login on server
-      passphrase: 123password             # SMTP-login-password
+      login: monitoring                   # login name on server (leave empty together with passphrase to disable authentication)
+      passphrase: 123password             # SMTP-login-password (leave empty together with login to disable authentication)
       from: monitoring@helper1.com        # From-Header of monitoring-Mail (e.g. for filtering)
       to: monitoring@example.com          # address to deliver to
       detectiondir: /home/me/Maildir/new  # Maildir in which to look for monitoring-mail
