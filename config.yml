@@ -7,10 +7,6 @@ keypath: /path/to/cert.key
 authuser: "prometheus"
 authpass: "hello"
 
-# port and endpoint for http-endpoint
-httpport: 8080
-httpendpoint: '/metrics'
-
 # time between two monitoring-attempts
 monitoringinterval: 10m
 

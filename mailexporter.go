@@ -95,10 +95,6 @@ var globalconf struct {
 	AuthPass string
 	// The hashvalue to be used in HTTP Basic Auth (filled in parseConfig).
 	authHash string
-	// The port to listen on for Prometheus-Endpoint.
-	HTTPPort string
-	// The URL for prometheus' metrics-endpoint.
-	HTTPEndpoint string
 
 	// The time to wait between probe-attempts.
 	MonitoringInterval time.Duration
@@ -135,10 +131,14 @@ var (
 	confPath = flag.String("config-file", "./mailexporter.conf", "config-file to use")
 	useTLS   = flag.Bool("tls", true, "use TLS for metrics-endpoint")
 	useAuth  = flag.Bool("auth", true, "use HTTP-Basic-Auth for metrics-endpoint")
+	webListenAddress = flag.String("web.listen-address", ":8080", "colon separated address and port mailexporter shall listen on")
+	HTTPEndpoint = flag.String("web.metrics-endpoint", "/metrics", "HTTP endpoint for serving metrics")
 
 	// errors
 	errMailNotFound = errors.New("no corresponding mail found")
 	errNotOurDept   = errors.New("no mail of ours")
+
+	// listen-address
 )
 
 // holds information about probing-email with the corresponding file name
@@ -470,14 +470,14 @@ func main() {
 	log.Println("Starting HTTP-endpoint")
 	if *useAuth {
 		authenticator := auth.NewBasicAuthenticator("prometheus", secret)
-		http.HandleFunc(globalconf.HTTPEndpoint, auth.JustCheck(authenticator, prometheus.Handler().ServeHTTP))
+		http.HandleFunc(*HTTPEndpoint, auth.JustCheck(authenticator, prometheus.Handler().ServeHTTP))
 	} else {
-		http.Handle(globalconf.HTTPEndpoint, prometheus.Handler())
+		http.Handle(*HTTPEndpoint, prometheus.Handler())
 	}
 
 	if *useTLS {
-		promlog.Fatal(http.ListenAndServeTLS(":"+globalconf.HTTPPort, globalconf.CrtPath, globalconf.KeyPath, nil))
+		promlog.Fatal(http.ListenAndServeTLS(*webListenAddress, globalconf.CrtPath, globalconf.KeyPath, nil))
 	} else {
-		promlog.Fatal(http.ListenAndServe(":"+globalconf.HTTPPort, nil))
+		promlog.Fatal(http.ListenAndServe(*webListenAddress, nil))
 	}
 }
