@@ -85,10 +85,6 @@ func decomposePayload(input []byte) (payload, error) {
 
 // holds a configuration of external server to send test mails
 var globalconf struct {
-	// The path to the TLS-Public-Key.
-	CrtPath string
-	// The path to the TLS-Private-Key.
-	KeyPath string
 	// The username for HTTP Basic Auth.
 	AuthUser string
 	// The passphrase for HTTP Basic Auth.
@@ -128,11 +124,10 @@ type smtpServerConfig struct {
 
 var (
 	// cli-flags
-	confPath = flag.String("config-file", "./mailexporter.conf", "config-file to use")
-	useTLS   = flag.Bool("tls", true, "use TLS for metrics-endpoint")
-	useAuth  = flag.Bool("auth", true, "use HTTP-Basic-Auth for metrics-endpoint")
+	confPath         = flag.String("config-file", "./mailexporter.conf", "config-file to use")
+	useAuth          = flag.Bool("auth", true, "use HTTP-Basic-Auth for metrics-endpoint")
 	webListenAddress = flag.String("web.listen-address", ":8080", "colon separated address and port mailexporter shall listen on")
-	HTTPEndpoint = flag.String("web.metrics-endpoint", "/metrics", "HTTP endpoint for serving metrics")
+	HTTPEndpoint     = flag.String("web.metrics-endpoint", "/metrics", "HTTP endpoint for serving metrics")
 
 	// errors
 	errMailNotFound = errors.New("no corresponding mail found")
@@ -257,8 +252,8 @@ func send(c smtpServerConfig, msg string) error {
 	subjectheader := "Subject: " + "mailexporter-probe"
 	fullmail := fromheader + "\n" + subjectheader + "\n" + msg
 
-	var a smtp.Auth;
-	if c.Login == "" && c.Passphrase == "" {  // if login and passphrase are left empty, skip authentication
+	var a smtp.Auth
+	if c.Login == "" && c.Passphrase == "" { // if login and passphrase are left empty, skip authentication
 		a = nil
 	} else {
 		a = smtp.PlainAuth("", c.Login, c.Passphrase, c.Server)
@@ -482,9 +477,5 @@ func main() {
 		http.Handle(*HTTPEndpoint, prometheus.Handler())
 	}
 
-	if *useTLS {
-		promlog.Fatal(http.ListenAndServeTLS(*webListenAddress, globalconf.CrtPath, globalconf.KeyPath, nil))
-	} else {
-		promlog.Fatal(http.ListenAndServe(*webListenAddress, nil))
-	}
+	promlog.Fatal(http.ListenAndServe(*webListenAddress, nil))
 }
