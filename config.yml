@@ -1,8 +1,3 @@
-# HTTP-Basic-Auth-Credentials (in hashed form, see htpasswd)
-# defaulting to "prometheus" & "hello" here
-authuser: "prometheus"
-authpass: "hello"
-
 # time between two monitoring-attempts
 monitoringinterval: 10m
 

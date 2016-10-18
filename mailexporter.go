@@ -16,7 +16,6 @@ import (
 	"strings"
 	"time"
 
-	auth "github.com/abbot/go-http-auth"
 	"github.com/prometheus/client_golang/prometheus"
 	promlog "github.com/prometheus/log"
 	"gopkg.in/fsnotify.v1"
@@ -85,13 +84,6 @@ func decomposePayload(input []byte) (payload, error) {
 
 // holds a configuration of external server to send test mails
 var globalconf struct {
-	// The username for HTTP Basic Auth.
-	AuthUser string
-	// The passphrase for HTTP Basic Auth.
-	AuthPass string
-	// The hashvalue to be used in HTTP Basic Auth (filled in parseConfig).
-	authHash string
-
 	// The time to wait between probe-attempts.
 	MonitoringInterval time.Duration
 	// The time between start of monitoring-goroutines.
@@ -125,7 +117,6 @@ type smtpServerConfig struct {
 var (
 	// cli-flags
 	confPath         = flag.String("config-file", "./mailexporter.conf", "config-file to use")
-	useAuth          = flag.Bool("auth", true, "use HTTP-Basic-Auth for metrics-endpoint")
 	webListenAddress = flag.String("web.listen-address", ":8080", "colon separated address and port mailexporter shall listen on")
 	HTTPEndpoint     = flag.String("web.metrics-endpoint", "/metrics", "HTTP endpoint for serving metrics")
 
@@ -239,9 +230,6 @@ func parseConfig(r io.Reader) error {
 		return err
 	}
 
-	// the basic HTTP-Auth-Lib doesn't support Plaintext-passwords up to now, therefore precompute an md5-hash for that
-	globalconf.authHash = string(auth.MD5Crypt([]byte(globalconf.AuthPass), []byte("salt"), []byte("$magic$")))
-
 	return nil
 }
 
@@ -333,14 +321,6 @@ func monitor(c smtpServerConfig) {
 		go probe(c, p)
 		time.Sleep(globalconf.MonitoringInterval)
 	}
-}
-
-// secret returns secret for basic http-auth
-func secret(user, realm string) string {
-	if user == globalconf.AuthUser {
-		return globalconf.authHash
-	}
-	return ""
 }
 
 // classifyMailMetrics extracts all general mail metrics such as deliver duration etc.
@@ -470,12 +450,7 @@ func main() {
 	}
 
 	log.Println("Starting HTTP-endpoint")
-	if *useAuth {
-		authenticator := auth.NewBasicAuthenticator("prometheus", secret)
-		http.HandleFunc(*HTTPEndpoint, auth.JustCheck(authenticator, prometheus.Handler().ServeHTTP))
-	} else {
-		http.Handle(*HTTPEndpoint, prometheus.Handler())
-	}
+	http.Handle(*HTTPEndpoint, prometheus.Handler())
 
 	promlog.Fatal(http.ListenAndServe(*webListenAddress, nil))
 }
