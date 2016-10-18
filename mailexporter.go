@@ -118,7 +118,7 @@ var (
 	// cli-flags
 	confPath         = flag.String("config-file", "./mailexporter.conf", "config-file to use")
 	webListenAddress = flag.String("web.listen-address", ":8080", "colon separated address and port mailexporter shall listen on")
-	HTTPEndpoint     = flag.String("web.metrics-endpoint", "/metrics", "HTTP endpoint for serving metrics")
+	httpEndpoint     = flag.String("web.metrics-endpoint", "/metrics", "HTTP endpoint for serving metrics")
 
 	// errors
 	errNotOurDept = errors.New("no mail of ours")
@@ -438,7 +438,7 @@ func main() {
 	}
 
 	log.Println("Starting HTTP-endpoint")
-	http.Handle(*HTTPEndpoint, prometheus.Handler())
+	http.Handle(*httpEndpoint, prometheus.Handler())
 
 	promlog.Fatal(http.ListenAndServe(*webListenAddress, nil))
 }
