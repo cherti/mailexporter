@@ -225,12 +225,7 @@ func parseConfig(r io.Reader) error {
 		return err
 	}
 
-	err = yaml.Unmarshal(content, &globalconf)
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return yaml.Unmarshal(content, &globalconf)
 }
 
 // send sends a probing-email over SMTP-server specified in config c to be waited for on the receiving side.
@@ -247,13 +242,7 @@ func send(c smtpServerConfig, msg string) error {
 		a = smtp.PlainAuth("", c.Login, c.Passphrase, c.Server)
 	}
 
-	err := smtp.SendMail(c.Server+":"+c.Port, a, c.From, []string{c.To}, []byte(fullmail))
-
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return smtp.SendMail(c.Server+":"+c.Port, a, c.From, []string{c.To}, []byte(fullmail))
 }
 
 // generateToken returns a random string to pad the send mail with for identifying
