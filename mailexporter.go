@@ -121,8 +121,7 @@ var (
 	HTTPEndpoint     = flag.String("web.metrics-endpoint", "/metrics", "HTTP endpoint for serving metrics")
 
 	// errors
-	errMailNotFound = errors.New("no corresponding mail found")
-	errNotOurDept   = errors.New("no mail of ours")
+	errNotOurDept = errors.New("no mail of ours")
 
 	// listen-address
 )
