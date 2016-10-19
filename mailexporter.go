@@ -16,7 +16,6 @@ import (
 	"strings"
 	"time"
 
-	auth "github.com/abbot/go-http-auth"
 	"github.com/prometheus/client_golang/prometheus"
 	promlog "github.com/prometheus/log"
 	"gopkg.in/fsnotify.v1"
@@ -85,17 +84,6 @@ func decomposePayload(input []byte) (payload, error) {
 
 // holds a configuration of external server to send test mails
 var globalconf struct {
-	// The path to the TLS-Public-Key.
-	CrtPath string
-	// The path to the TLS-Private-Key.
-	KeyPath string
-	// The username for HTTP Basic Auth.
-	AuthUser string
-	// The passphrase for HTTP Basic Auth.
-	AuthPass string
-	// The hashvalue to be used in HTTP Basic Auth (filled in parseConfig).
-	authHash string
-
 	// The time to wait between probe-attempts.
 	MonitoringInterval time.Duration
 	// The time between start of monitoring-goroutines.
@@ -128,15 +116,12 @@ type smtpServerConfig struct {
 
 var (
 	// cli-flags
-	confPath = flag.String("config-file", "./mailexporter.conf", "config-file to use")
-	useTLS   = flag.Bool("tls", true, "use TLS for metrics-endpoint")
-	useAuth  = flag.Bool("auth", true, "use HTTP-Basic-Auth for metrics-endpoint")
+	confPath         = flag.String("config-file", "./mailexporter.conf", "config-file to use")
 	webListenAddress = flag.String("web.listen-address", ":8080", "colon separated address and port mailexporter shall listen on")
-	HTTPEndpoint = flag.String("web.metrics-endpoint", "/metrics", "HTTP endpoint for serving metrics")
+	httpEndpoint     = flag.String("web.metrics-endpoint", "/metrics", "HTTP endpoint for serving metrics")
 
 	// errors
-	errMailNotFound = errors.New("no corresponding mail found")
-	errNotOurDept   = errors.New("no mail of ours")
+	errNotOurDept = errors.New("no mail of ours")
 
 	// listen-address
 )
@@ -150,14 +135,14 @@ type email struct {
 	// unique token to identify the mail even if timings and name are exactly the same
 	token string
 	// time the mail was sent as unix-timestamp
-	t_sent time.Time
+	tSent time.Time
 	// time the mail was detected as unix-timestamp
-	t_recv time.Time
+	tRecv time.Time
 }
 
 // prometheus-instrumentation
 
-var deliver_ok = prometheus.NewGaugeVec(
+var deliverOk = prometheus.NewGaugeVec(
 	prometheus.GaugeOpts{
 		Name: "mail_deliver_success",
 		Help: "indicatior whether last mail was delivered successfully",
@@ -165,7 +150,7 @@ var deliver_ok = prometheus.NewGaugeVec(
 	[]string{"configname"},
 )
 
-var last_mail_deliver_time = prometheus.NewGaugeVec(
+var lastMailDeliverTime = prometheus.NewGaugeVec(
 	prometheus.GaugeOpts{
 		Name: "mail_last_deliver_time",
 		Help: "timestamp (in s) of detection of last correctly received testmail",
@@ -173,7 +158,7 @@ var last_mail_deliver_time = prometheus.NewGaugeVec(
 	[]string{"configname"},
 )
 
-var last_mail_deliver_duration = prometheus.NewGaugeVec(
+var lastMailDeliverDuration = prometheus.NewGaugeVec(
 	prometheus.GaugeOpts{
 		Name: "mail_last_deliver_duration",
 		Help: "duration (in ms) of delivery of last correctly received testmail",
@@ -181,7 +166,7 @@ var last_mail_deliver_duration = prometheus.NewGaugeVec(
 	[]string{"configname"},
 )
 
-var late_mails = prometheus.NewCounterVec(
+var lateMails = prometheus.NewCounterVec(
 	prometheus.CounterOpts{
 		Name: "mail_late_mails",
 		Help: "number of probing-mails received after their respective timeout",
@@ -189,7 +174,7 @@ var late_mails = prometheus.NewCounterVec(
 	[]string{"configname"},
 )
 
-var mail_send_fails = prometheus.NewCounterVec(
+var mailSendFails = prometheus.NewCounterVec(
 	prometheus.CounterOpts{
 		Name: "mail_send_fails",
 		Help: "number of failed attempts to send a probing mail via specified SMTP-server",
@@ -197,7 +182,7 @@ var mail_send_fails = prometheus.NewCounterVec(
 	[]string{"configname"},
 )
 
-var mail_deliver_durations = prometheus.NewHistogramVec(
+var mailDeliverDurations = prometheus.NewHistogramVec(
 	prometheus.HistogramOpts{
 		Name:    "mail_deliver_durations",
 		Help:    "durations (in ms) of mail delivery",
@@ -220,12 +205,12 @@ func histBuckets(upperBound float64, binSize float64) []float64 {
 }
 
 func init() {
-	prometheus.MustRegister(deliver_ok)
-	prometheus.MustRegister(last_mail_deliver_time)
-	prometheus.MustRegister(late_mails)
-	prometheus.MustRegister(last_mail_deliver_duration)
-	prometheus.MustRegister(mail_deliver_durations)
-	prometheus.MustRegister(mail_send_fails)
+	prometheus.MustRegister(deliverOk)
+	prometheus.MustRegister(lastMailDeliverTime)
+	prometheus.MustRegister(lateMails)
+	prometheus.MustRegister(lastMailDeliverDuration)
+	prometheus.MustRegister(mailDeliverDurations)
+	prometheus.MustRegister(mailSendFails)
 }
 
 func milliseconds(d time.Duration) int64 {
@@ -239,15 +224,7 @@ func parseConfig(r io.Reader) error {
 		return err
 	}
 
-	err = yaml.Unmarshal(content, &globalconf)
-	if err != nil {
-		return err
-	}
-
-	// the basic HTTP-Auth-Lib doesn't support Plaintext-passwords up to now, therefore precompute an md5-hash for that
-	globalconf.authHash = string(auth.MD5Crypt([]byte(globalconf.AuthPass), []byte("salt"), []byte("$magic$")))
-
-	return nil
+	return yaml.Unmarshal(content, &globalconf)
 }
 
 // send sends a probing-email over SMTP-server specified in config c to be waited for on the receiving side.
@@ -257,20 +234,14 @@ func send(c smtpServerConfig, msg string) error {
 	subjectheader := "Subject: " + "mailexporter-probe"
 	fullmail := fromheader + "\n" + subjectheader + "\n" + msg
 
-	var a smtp.Auth;
-	if c.Login == "" && c.Passphrase == "" {  // if login and passphrase are left empty, skip authentication
+	var a smtp.Auth
+	if c.Login == "" && c.Passphrase == "" { // if login and passphrase are left empty, skip authentication
 		a = nil
 	} else {
 		a = smtp.PlainAuth("", c.Login, c.Passphrase, c.Server)
 	}
 
-	err := smtp.SendMail(c.Server+":"+c.Port, a, c.From, []string{c.To}, []byte(fullmail))
-
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return smtp.SendMail(c.Server+":"+c.Port, a, c.From, []string{c.To}, []byte(fullmail))
 }
 
 // generateToken returns a random string to pad the send mail with for identifying
@@ -294,10 +265,10 @@ func deleteMail(m email) {
 	promlog.Debug("rm ", m.filename)
 }
 
-// lateMail logs mails that have been so late that they timed out
-func lateMail(m email) {
-	promlog.Debug("got late mail via %s; mail took %d ms", m.configname, milliseconds(m.t_recv.Sub(m.t_sent)))
-	late_mails.WithLabelValues(m.configname).Inc()
+// handleLateMail handles mails that have been so late that they timed out
+func handleLateMail(m email) {
+	promlog.Debug("got late mail via %s; mail took %d ms", m.configname, milliseconds(m.tRecv.Sub(m.tSent)))
+	lateMails.WithLabelValues(m.configname).Inc()
 	deleteMail(m)
 }
 
@@ -309,7 +280,7 @@ func probe(c smtpServerConfig, p payload) {
 	err := send(c, p.String())
 	if err != nil {
 		promlog.Warnf("error sending probe-mail via %s: %s; skipping attempt", c.Name, err)
-		mail_send_fails.WithLabelValues(c.Name).Inc()
+		mailSendFails.WithLabelValues(c.Name).Inc()
 		disposeToken <- p.token
 		return
 	}
@@ -319,12 +290,12 @@ func probe(c smtpServerConfig, p payload) {
 	case mail := <-muxer[p.token]:
 		promlog.Debug("checking mail for timeout")
 
-		deliver_ok.WithLabelValues(c.Name).Set(1)
+		deliverOk.WithLabelValues(c.Name).Set(1)
 		deleteMail(mail)
 
 	case <-timeout:
 		promlog.Debug("Getting mail timed out.")
-		deliver_ok.WithLabelValues(c.Name).Set(0)
+		deliverOk.WithLabelValues(c.Name).Set(0)
 	}
 
 	disposeToken <- p.token
@@ -340,25 +311,17 @@ func monitor(c smtpServerConfig) {
 	}
 }
 
-// secret returns secret for basic http-auth
-func secret(user, realm string) string {
-	if user == globalconf.AuthUser {
-		return globalconf.authHash
-	}
-	return ""
-}
-
 // classifyMailMetrics extracts all general mail metrics such as deliver duration etc.
 // from a mail struct and sets the corresponding metrics
 func classifyMailMetrics(foundMail email) {
 	// timestamps are in nanoseconds
 	// last_mail_deliver_time shall be standard unix-timestamp
 	// last_mail_deliver_duration shall be milliseconds for higher resolution
-	deliverTime := float64(foundMail.t_recv.Unix())
-	deliverDuration := float64(milliseconds(foundMail.t_recv.Sub(foundMail.t_sent)))
-	last_mail_deliver_time.WithLabelValues(foundMail.configname).Set(deliverTime)
-	last_mail_deliver_duration.WithLabelValues(foundMail.configname).Set(deliverDuration)
-	mail_deliver_durations.WithLabelValues(foundMail.configname).Observe(deliverDuration)
+	deliverTime := float64(foundMail.tRecv.Unix())
+	deliverDuration := float64(milliseconds(foundMail.tRecv.Sub(foundMail.tSent)))
+	lastMailDeliverTime.WithLabelValues(foundMail.configname).Set(deliverTime)
+	lastMailDeliverDuration.WithLabelValues(foundMail.configname).Set(deliverDuration)
+	mailDeliverDurations.WithLabelValues(foundMail.configname).Observe(deliverDuration)
 }
 
 // detectAndMuxMail monitors Detectiondirs, reports mails that come in to the goroutine they belong to
@@ -379,7 +342,7 @@ func detectAndMuxMail(watcher *fsnotify.Watcher) {
 					if ch, ok := muxer[foundMail.token]; ok {
 						ch <- foundMail
 					} else {
-						lateMail(foundMail)
+						handleLateMail(foundMail)
 					}
 				}
 			}
@@ -447,8 +410,8 @@ func main() {
 
 	// initialize Metrics that will be used seldom so that they actually get exported with a metric
 	for _, c := range globalconf.Servers {
-		late_mails.GetMetricWithLabelValues(c.Name)
-		mail_send_fails.GetMetricWithLabelValues(c.Name)
+		lateMails.GetMetricWithLabelValues(c.Name)
+		mailSendFails.GetMetricWithLabelValues(c.Name)
 	}
 
 	fswatcher, err := fsnotify.NewWatcher()
@@ -475,16 +438,7 @@ func main() {
 	}
 
 	log.Println("Starting HTTP-endpoint")
-	if *useAuth {
-		authenticator := auth.NewBasicAuthenticator("prometheus", secret)
-		http.HandleFunc(*HTTPEndpoint, auth.JustCheck(authenticator, prometheus.Handler().ServeHTTP))
-	} else {
-		http.Handle(*HTTPEndpoint, prometheus.Handler())
-	}
+	http.Handle(*httpEndpoint, prometheus.Handler())
 
-	if *useTLS {
-		promlog.Fatal(http.ListenAndServeTLS(*webListenAddress, globalconf.CrtPath, globalconf.KeyPath, nil))
-	} else {
-		promlog.Fatal(http.ListenAndServe(*webListenAddress, nil))
-	}
+	promlog.Fatal(http.ListenAndServe(*webListenAddress, nil))
 }
