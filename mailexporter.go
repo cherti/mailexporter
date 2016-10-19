@@ -265,8 +265,8 @@ func deleteMail(m email) {
 	promlog.Debug("rm ", m.filename)
 }
 
-// logLateMail logs mails that have been so late that they timed out
-func logLateMail(m email) {
+// handleLateMail handles mails that have been so late that they timed out
+func handleLateMail(m email) {
 	promlog.Debug("got late mail via %s; mail took %d ms", m.configname, milliseconds(m.tRecv.Sub(m.tSent)))
 	lateMails.WithLabelValues(m.configname).Inc()
 	deleteMail(m)
@@ -342,7 +342,7 @@ func detectAndMuxMail(watcher *fsnotify.Watcher) {
 					if ch, ok := muxer[foundMail.token]; ok {
 						ch <- foundMail
 					} else {
-						logLateMail(foundMail)
+						handleLateMail(foundMail)
 					}
 				}
 			}
