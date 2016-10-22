@@ -424,16 +424,8 @@ func main() {
 
 	// initialize Metrics that will be used seldom so that they actually get exported with a metric
 	for _, c := range globalconf.Servers {
-
-		_, err1 := lateMails.GetMetricWithLabelValues(c.Name)
-		if err1 != nil {
-			promlog.Warn(err1)
-		}
-
-		_, err2 := mailSendFails.GetMetricWithLabelValues(c.Name)
-		if err2 != nil {
-			promlog.Warn(err2)
-		}
+		lateMails.WithLabelValues(c.Name)
+		mailSendFails.WithLabelValues(c.Name)
 	}
 
 	fswatcher, err := fsnotify.NewWatcher()
