@@ -356,6 +356,13 @@ func detectAndMuxMail(watcher *fsnotify.Watcher) {
 	}
 }
 
+func fileClose(f *os.File) {
+	err := f.Close()
+	if err != nil {
+		promlog.Warn(err)
+	}
+}
+
 // parseMail reads a mailfile's content and parses it into a mail-struct if one of ours.
 func parseMail(path string) (email, error) {
 	// to date the mails found
@@ -366,7 +373,7 @@ func parseMail(path string) (email, error) {
 	if err != nil {
 		return email{}, err
 	}
-	defer f.Close()
+	defer fileClose(f)
 
 	mail, err := mail.ReadMessage(io.LimitReader(f, 8192))
 	if err != nil {
@@ -389,6 +396,13 @@ func parseMail(path string) (email, error) {
 	return email{path, p.configname, p.token, time.Unix(0, p.timestamp), t}, nil
 }
 
+func watcherClose(w *fsnotify.Watcher) {
+	err := w.Close()
+	if err != nil {
+		promlog.Warn(err)
+	}
+}
+
 func main() {
 	flag.Parse()
 
@@ -401,29 +415,31 @@ func main() {
 	if err != nil {
 		promlog.Fatal(err)
 	}
+	defer fileClose(f)
 
 	err = parseConfig(f)
-	f.Close()
 	if err != nil {
 		promlog.Fatal(err)
 	}
 
 	// initialize Metrics that will be used seldom so that they actually get exported with a metric
 	for _, c := range globalconf.Servers {
-		lateMails.GetMetricWithLabelValues(c.Name)
-		mailSendFails.GetMetricWithLabelValues(c.Name)
+		lateMails.WithLabelValues(c.Name)
+		mailSendFails.WithLabelValues(c.Name)
 	}
 
 	fswatcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		promlog.Fatal(err)
 	}
-
-	defer fswatcher.Close()
+	defer watcherClose(fswatcher)
 
 	for _, c := range globalconf.Servers {
 		promlog.Debug("adding path to watcher:", c.Detectiondir)
-		fswatcher.Add(c.Detectiondir) // deduplication is done within fsnotify
+		errAdd := fswatcher.Add(c.Detectiondir) // deduplication is done within fsnotify
+		if errAdd != nil {
+			promlog.Warn(errAdd)
+		}
 	}
 
 	go detectAndMuxMail(fswatcher)
