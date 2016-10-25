@@ -43,6 +43,10 @@ The following metrics are exported, for each metric there is one instance per pr
 ## Configuration
 
 By defaut, mailexporter reads `/etc/prometheus/mailexporter.conf` as its configfile. This can be changed via the command line flag `-config-file`.
+The Mailexporter doesn't support TLS and auth natively. This is left to tools intended for that.
+Nevertheless you are encouraged to use it with TLS and auth, e.g. by binding to `-web.listen-address=127.0.0.1:8083`
+and an nginx-reverseproxy or [AuthGuard](https://github.com/cherti/authguard).
+
 Also, by default, it uses HTTP basic auth on the metrics-endpoint as well as TLS.
 If desired, both can be disabled by using the `-auth=false` or the `-tls=false` commandline flags respectively.
 
