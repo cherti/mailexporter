@@ -25,7 +25,6 @@ The following metrics are exported, for each metric there is one instance per pr
     # get dependencies
     go get -u "github.com/prometheus/client_golang/prometheus"
     go get -u "gopkg.in/yaml.v2"
-    go get -u "github.com/abbot/go-http-auth"
     
     # actually build and run
     git clone https://github.com/cherti/mailexporter.git
