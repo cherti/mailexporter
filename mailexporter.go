@@ -17,9 +17,15 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
-	promlog "github.com/prometheus/log"
 	"gopkg.in/fsnotify.v1"
 	"gopkg.in/yaml.v2"
+)
+
+var (
+	logInfo  = log.New(os.Stdout, "", 0)
+	logWarn  = log.New(os.Stdout, "WARNING: ", 0)
+	logDebug = log.New(os.Stdout, "DEBUG: ", 0)
+	logError = log.New(os.Stdout, "ERROR: ", 0)
 )
 
 var tokenLength = 40 // length of token for probing-mails
@@ -47,7 +53,7 @@ func newPayload(confname string) payload {
 
 	//payload = strings.Join([]string{name, token, time.Now().UnixNano()}, "-")
 	p := payload{confname, token, time.Now().UnixNano()}
-	promlog.Debug("composed payload:", p)
+	logDebug.Println("composed payload:", p)
 
 	return p
 }
@@ -63,19 +69,19 @@ func (p payload) timestring() string {
 // decomposePayload returns the config name and unix timestamp as appropriate types
 // from given payload.
 func decomposePayload(input []byte) (payload, error) {
-	promlog.Debug("payload to decompose:", input)
+	logDebug.Println("payload to decompose:", input)
 
 	decomp := strings.Split(string(input), "-")
 	// is it correctly parsable?
 	if len(decomp) != 3 {
-		promlog.Debug("no fitting decomp")
+		logDebug.Println("no fitting decomp")
 		return payload{}, errNotOurDept
 	}
 
 	extractedUnixTime, err := strconv.ParseInt(decomp[2], 10, 64)
 	// is the last one a unix-timestamp?
 	if err != nil {
-		promlog.Debug("unix-timestamp-parse-error")
+		logDebug.Println("unix-timestamp-parse-error")
 		return payload{}, errNotOurDept
 	}
 
@@ -119,6 +125,8 @@ var (
 	confPath         = flag.String("config-file", "./mailexporter.conf", "config-file to use")
 	webListenAddress = flag.String("web.listen-address", ":8080", "colon separated address and port mailexporter shall listen on")
 	httpEndpoint     = flag.String("web.metrics-endpoint", "/metrics", "HTTP endpoint for serving metrics")
+	verbosity        = flag.Int("v", 1, "verbosity; higher means more output")
+	logTimestamps    = flag.Bool("config.log-timestamps", false, "Log with timestamps")
 
 	// errors
 	errNotOurDept = errors.New("no mail of ours")
@@ -229,7 +237,7 @@ func parseConfig(r io.Reader) error {
 
 // send sends a probing-email over SMTP-server specified in config c to be waited for on the receiving side.
 func send(c smtpServerConfig, msg string) error {
-	promlog.Debug("sending mail")
+	logDebug.Println("sending mail")
 	fromheader := "From: " + c.From
 	subjectheader := "Subject: " + "mailexporter-probe"
 	fullmail := fromheader + "\n" + subjectheader + "\n" + msg
@@ -260,14 +268,14 @@ func generateToken(length int) string {
 // deleteMail delete the given mail to not leave an untidied maildir.
 func deleteMail(m email) {
 	if err := os.Remove(m.filename); err != nil {
-		promlog.Warn(err)
+		logWarn.Println(err)
 	}
-	promlog.Debug("rm ", m.filename)
+	logDebug.Println("rm ", m.filename)
 }
 
 // handleLateMail handles mails that have been so late that they timed out
 func handleLateMail(m email) {
-	promlog.Debug("got late mail via %s; mail took %d ms", m.configname, milliseconds(m.tRecv.Sub(m.tSent)))
+	logDebug.Println("got late mail via %s; mail took %d ms", m.configname, milliseconds(m.tRecv.Sub(m.tSent)))
 	lateMails.WithLabelValues(m.configname).Inc()
 	deleteMail(m)
 }
@@ -279,7 +287,7 @@ func probe(c smtpServerConfig, p payload) {
 	//send(c, string(p))
 	err := send(c, p.String())
 	if err != nil {
-		promlog.Warnf("error sending probe-mail via %s: %s; skipping attempt", c.Name, err)
+		logWarn.Println("error sending probe-mail via %s: %s; skipping attempt", c.Name, err)
 		mailSendFails.WithLabelValues(c.Name).Inc()
 		disposeToken <- p.token
 		return
@@ -288,13 +296,13 @@ func probe(c smtpServerConfig, p payload) {
 	timeout := time.After(globalconf.MailCheckTimeout)
 	select {
 	case mail := <-muxer[p.token]:
-		promlog.Debug("checking mail for timeout")
+		logDebug.Println("checking mail for timeout")
 
 		deliverOk.WithLabelValues(c.Name).Set(1)
 		deleteMail(mail)
 
 	case <-timeout:
-		promlog.Debug("Getting mail timed out.")
+		logDebug.Println("Getting mail timed out.")
 		deliverOk.WithLabelValues(c.Name).Set(0)
 	}
 
@@ -347,7 +355,7 @@ func detectAndMuxMail(watcher *fsnotify.Watcher) {
 				}
 			}
 		case err := <-watcher.Errors:
-			promlog.Warn("watcher-error:", err)
+			logWarn.Println("watcher-error:", err)
 		case token := <-disposeToken:
 			// deletion of channels is done here to avoid interference with the report-case of this goroutine
 			close(muxer[token])
@@ -359,7 +367,7 @@ func detectAndMuxMail(watcher *fsnotify.Watcher) {
 func fileClose(f *os.File) {
 	err := f.Close()
 	if err != nil {
-		promlog.Warn(err)
+		logWarn.Println(err)
 	}
 }
 
@@ -399,12 +407,31 @@ func parseMail(path string) (email, error) {
 func watcherClose(w *fsnotify.Watcher) {
 	err := w.Close()
 	if err != nil {
-		promlog.Warn(err)
+		logWarn.Println(err)
 	}
 }
 
 func main() {
 	flag.Parse()
+
+	// handle log-verbosity
+	if *verbosity < 1 {
+		// disable everything except error logs
+		logInfo.SetOutput(ioutil.Discard)
+		logWarn.SetOutput(ioutil.Discard)
+	}
+	if *verbosity < 2 {
+		// disable Debug-logs (default)
+		logDebug.SetOutput(ioutil.Discard)
+	}
+
+	// handle log-timestamping
+	if *logTimestamps {
+		logInfo.SetFlags(3)
+		logWarn.SetFlags(3)
+		logDebug.SetFlags(3)
+		logError.SetFlags(3)
+	}
 
 	// seed the RNG, otherwise we would have same randomness on every startup
 	// which should not, but might in worst case interfere with leftover-mails
@@ -413,13 +440,13 @@ func main() {
 
 	f, err := os.Open(*confPath)
 	if err != nil {
-		promlog.Fatal(err)
+		logError.Fatal(err)
 	}
 	defer fileClose(f)
 
 	err = parseConfig(f)
 	if err != nil {
-		promlog.Fatal(err)
+		logError.Fatal(err)
 	}
 
 	// initialize Metrics that will be used seldom so that they actually get exported with a metric
@@ -430,15 +457,15 @@ func main() {
 
 	fswatcher, err := fsnotify.NewWatcher()
 	if err != nil {
-		promlog.Fatal(err)
+		logError.Fatal(err)
 	}
 	defer watcherClose(fswatcher)
 
 	for _, c := range globalconf.Servers {
-		promlog.Debug("adding path to watcher:", c.Detectiondir)
+		logDebug.Println("adding path to watcher:", c.Detectiondir)
 		errAdd := fswatcher.Add(c.Detectiondir) // deduplication is done within fsnotify
 		if errAdd != nil {
-			promlog.Warn(errAdd)
+			logWarn.Println(errAdd)
 		}
 	}
 
@@ -456,5 +483,5 @@ func main() {
 	log.Println("Starting HTTP-endpoint")
 	http.Handle(*httpEndpoint, prometheus.Handler())
 
-	promlog.Fatal(http.ListenAndServe(*webListenAddress, nil))
+	logError.Fatal(http.ListenAndServe(*webListenAddress, nil))
 }
