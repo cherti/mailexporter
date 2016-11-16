@@ -11,7 +11,7 @@ Success is indicated by a value of `1` of the metric `mail_deliver_success`, fai
 
 The following metrics are exported, for each metric there is one instance per probe-config, distinguishable by label `configname` (which contains the value of the `Name`-field of the respective configuration section).
 
-* `mail_deliver_success`: indicates mail delivery functionality (`1` if functional, `0` if not)
+* `mail_deliver_success`: indicates if last successfully sent mail was delivered in time (`1` if so, `0` if not)
 * `mail_last_deliver_time`: last time a mail was successfully delivered to the system as a unix timestamp (in seconds)
 * `mail_last_deliver_duration`: time it took for the last received mail to be delivered (doesn't matter if timed out or not) in milliseconds
 * `mail_late_mails`: number of probing-mails being received after their respective timeout
