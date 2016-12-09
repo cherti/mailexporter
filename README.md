@@ -52,14 +52,14 @@ If desired, both can be disabled by using the `-auth=false` or the `-tls=false` 
 The address mailexporter should listen on is specified by the commandline-flag `-web.listen-address` in the format `<address>:<port>`.
 Furthermore you can adjust the HTTP endpoint for metrics by setting the `web.metrics-endpoint`-flag, which defaults to `/metrics`.
 
-Further configuration is done via the configuration file. See config.yml for further info.
+Further configuration is done via the configuration file. See `mailexporter.conf` for further info.
 
 
-### config.yml
+### mailexporter.conf
 
 The configuration is done in [YAML](www.yaml.org).
 
-For detailed info see `config.yml` as the provided example configuration.
+For detailed info see `mailexporter.conf` as the provided example configuration.
 
 By default, mailexporter looks for a configuration file ./mailexporter.conf. This can be changed via `-config-file=/path/to/file` as cli-flag.
 

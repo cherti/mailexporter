@@ -122,7 +122,7 @@ type smtpServerConfig struct {
 
 var (
 	// cli-flags
-	confPath         = flag.String("config-file", "./mailexporter.conf", "config-file to use")
+	confPath         = flag.String("config-file", "/etc/mailexporter.conf", "config-file to use")
 	webListenAddress = flag.String("web.listen-address", ":8080", "colon separated address and port mailexporter shall listen on")
 	httpEndpoint     = flag.String("web.metrics-endpoint", "/metrics", "HTTP endpoint for serving metrics")
 	verbosity        = flag.Int("v", 1, "verbosity; higher means more output")
