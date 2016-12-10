@@ -1,0 +1,20 @@
+[Unit]
+Description=Exports prometheus-style metrics about mailserver functionality
+After=network-online.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/mailexporter -web.listen-address=%i
+Restart=always
+
+# systemd hardening-options
+# Documentation about these can be found under systemd.exec(5)
+# The linked websites might be for a newer systemd version than your installed one
+PrivateDevices=true      # https://www.freedesktop.org/software/systemd/man/systemd.exec.html#PrivateDevices=
+PrivateTmp=true          # https://www.freedesktop.org/software/systemd/man/systemd.exec.html#PrivateTmp=
+ProtectSystem=full       # https://www.freedesktop.org/software/systemd/man/systemd.exec.html#ProtectSystem=
+NoNewPrivileges=true     # https://www.freedesktop.org/software/systemd/man/systemd.exec.html#NoNewPrivileges=
+
+[Install]
+WantedBy=multi-user.target
