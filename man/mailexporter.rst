@@ -21,7 +21,7 @@ OPTIONS
 
 **-v=<level>** verbosity; higher means more output (default 1)
 
-**-web.listen-address** colon separated address and port mailexporter shall listen on (default ":8080")
+**-web.listen-address** colon separated address and port mailexporter shall listen on (default ":9225")
 
 **-web.metrics-endpoint** HTTP endpoint for serving metrics (default "/metrics")
 
