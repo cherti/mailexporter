@@ -411,6 +411,18 @@ func watcherClose(w *fsnotify.Watcher) {
 	}
 }
 
+func startMonitoring(){
+
+	for _, c := range globalconf.Servers {
+		go monitor(c)
+
+		// keep a timedelta between monitoring jobs to reduce interference
+		// (although that shouldn't be an issue)
+		time.Sleep(globalconf.StartupOffset)
+	}
+
+}
+
 func main() {
 	flag.Parse()
 
@@ -470,15 +482,8 @@ func main() {
 	}
 
 	go detectAndMuxMail(fswatcher)
-
-	// now fire up the monitoring jobs
-	for _, c := range globalconf.Servers {
-		go monitor(c)
-
-		// keep a timedelta between monitoring jobs to reduce interference
-		// (although that shouldn't be an issue)
-		time.Sleep(globalconf.StartupOffset)
-	}
+	
+	startMonitoring()
 
 	log.Println("Starting HTTP-endpoint")
 	http.Handle(*httpEndpoint, prometheus.Handler())
