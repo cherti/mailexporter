@@ -417,9 +417,10 @@ func startMonitoringJobs() {
 	for _, c := range globalconf.Servers {
 		go monitor(c)
 
-		// keep a timedelta between monitoring jobs to reduce interference
+		// keep a randostatementm timedelta between monitoring jobs to reduce interference
 		// (although that shouldn't be an issue)
-		time.Sleep(globalconf.StartupOffset)
+
+		time.Sleep(time.Duration(rand.Int()%10000)*time.Millisecond)
 	}
 
 }
