@@ -311,11 +311,14 @@ func probe(c smtpServerConfig, p payload) {
 
 // monitor probes every MonitoringInterval if mail still gets through.
 func monitor(c smtpServerConfig) {
+	// keep a random timedelta between monitoring jobs to reduce interference
+	time.Sleep(time.Duration(rand.Int()%10000)*time.Millisecond)
 	log.Println("Started monitoring for config", c.Name)
 	for {
 		p := newPayload(c.Name)
 		go probe(c, p)
 		time.Sleep(globalconf.MonitoringInterval)
+		
 	}
 }
 
@@ -416,11 +419,6 @@ func startMonitoringJobs() {
 
 	for _, c := range globalconf.Servers {
 		go monitor(c)
-
-		// keep a randostatementm timedelta between monitoring jobs to reduce interference
-		// (although that shouldn't be an issue)
-
-		time.Sleep(time.Duration(rand.Int()%10000)*time.Millisecond)
 	}
 
 }
