@@ -411,15 +411,6 @@ func watcherClose(w *fsnotify.Watcher) {
 	}
 }
 
-//startMonitoringJobs starts monitoring goroutines for specified SMTP-server
-func startMonitoringJobs() {
-
-	for _, c := range globalconf.Servers {
-		go monitor(c)
-	}
-
-}
-
 func main() {
 	flag.Parse()
 
@@ -479,8 +470,11 @@ func main() {
 	}
 
 	go detectAndMuxMail(fswatcher)
-
-	go startMonitoringJobs()
+	
+	//starts monitoring goroutines for specified SMTP-server
+	for _, c := range globalconf.Servers {
+		go monitor(c)
+	}
 
 	log.Println("Starting HTTP-endpoint")
 	http.Handle(*httpEndpoint, prometheus.Handler())
