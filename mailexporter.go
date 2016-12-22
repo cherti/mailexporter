@@ -92,8 +92,6 @@ func decomposePayload(input []byte) (payload, error) {
 var globalconf struct {
 	// The time to wait between probe-attempts.
 	MonitoringInterval time.Duration
-	// The time between start of monitoring-goroutines.
-	StartupOffset time.Duration
 	// The time to wait until mail_deliver_success = 0 is reported.
 	MailCheckTimeout time.Duration
 
@@ -311,6 +309,8 @@ func probe(c smtpServerConfig, p payload) {
 
 // monitor probes every MonitoringInterval if mail still gets through.
 func monitor(c smtpServerConfig) {
+	//delay start of monitoring randomly to desync the probing of the monitoring-coroutines
+	time.Sleep(time.Duration(rand.Int()%20000) * time.Millisecond)
 	log.Println("Started monitoring for config", c.Name)
 	for {
 		p := newPayload(c.Name)
@@ -411,19 +411,6 @@ func watcherClose(w *fsnotify.Watcher) {
 	}
 }
 
-//startMonitoringJobs starts monitoring goroutines for specified SMTP-server
-func startMonitoringJobs() {
-
-	for _, c := range globalconf.Servers {
-		go monitor(c)
-
-		// keep a timedelta between monitoring jobs to reduce interference
-		// (although that shouldn't be an issue)
-		time.Sleep(globalconf.StartupOffset)
-	}
-
-}
-
 func main() {
 	flag.Parse()
 
@@ -484,7 +471,10 @@ func main() {
 
 	go detectAndMuxMail(fswatcher)
 
-	go startMonitoringJobs()
+	//starts monitoring goroutines for specified SMTP-server
+	for _, c := range globalconf.Servers {
+		go monitor(c)
+	}
 
 	log.Println("Starting HTTP-endpoint")
 	http.Handle(*httpEndpoint, prometheus.Handler())
