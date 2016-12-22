@@ -310,7 +310,7 @@ func probe(c smtpServerConfig, p payload) {
 // monitor probes every MonitoringInterval if mail still gets through.
 func monitor(c smtpServerConfig) {
 	//delay start of monitoring randomly to desync the probing of the monitoring-coroutines
-	time.Sleep(time.Duration(rand.Int()%20000)*time.Millisecond)
+	time.Sleep(time.Duration(rand.Int()%20000) * time.Millisecond)
 	log.Println("Started monitoring for config", c.Name)
 	for {
 		p := newPayload(c.Name)
@@ -470,7 +470,7 @@ func main() {
 	}
 
 	go detectAndMuxMail(fswatcher)
-	
+
 	//starts monitoring goroutines for specified SMTP-server
 	for _, c := range globalconf.Servers {
 		go monitor(c)
