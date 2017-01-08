@@ -94,6 +94,8 @@ var globalconf struct {
 	MonitoringInterval time.Duration
 	// The time to wait until mail_deliver_success = 0 is reported.
 	MailCheckTimeout time.Duration
+	// Disables deletion of probing-mails found
+	DisableFileDeletion bool
 
 	// SMTP-Servers used for probing.
 	Servers []smtpServerConfig
@@ -264,18 +266,22 @@ func generateToken(length int) string {
 }
 
 // deleteMail delete the given mail to not leave an untidied maildir.
-func deleteMail(m email) {
-	if err := os.Remove(m.filename); err != nil {
-		logWarn.Println(err)
+func deleteMailIfEnabled(m email) {
+	if globalconf.DisableFileDeletion {
+		logDebug.Println("file deletion disabled in config, not touching", m.filename)
+	} else {
+		if err := os.Remove(m.filename); err != nil {
+			logWarn.Println("deletion error:", err)
+		}
+		logDebug.Println("rm ", m.filename)
 	}
-	logDebug.Println("rm ", m.filename)
 }
 
 // handleLateMail handles mails that have been so late that they timed out
 func handleLateMail(m email) {
 	logDebug.Printf("got late mail via %s; mail took %d ms\n", m.configname, milliseconds(m.tRecv.Sub(m.tSent)))
 	lateMails.WithLabelValues(m.configname).Inc()
-	deleteMail(m)
+	deleteMailIfEnabled(m)
 }
 
 // probe probes if mail gets through the entire chain from specified SMTPServer into Maildir.
@@ -297,7 +303,7 @@ func probe(c smtpServerConfig, p payload) {
 		logDebug.Println("checking mail for timeout")
 
 		deliverOk.WithLabelValues(c.Name).Set(1)
-		deleteMail(mail)
+		deleteMailIfEnabled(mail)
 
 	case <-timeout:
 		logDebug.Println("Getting mail timed out.")

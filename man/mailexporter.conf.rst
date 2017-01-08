@@ -16,6 +16,8 @@ GENERAL OPTIONS
 
 **mailchecktimeout** Timeout until mails are considered "didn't make it"
 
+**disablefiledeletion** <false|true> Disables the mailexporters function to delete probing mails if filesystem access should be restricted to avoid spamming the log with warnings; defaults to false, i.e. detected probing mails are deleted, and can be ommitted if unneeded
+
 SERVER-OPTIONS
 ==============
 
