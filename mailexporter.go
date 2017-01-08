@@ -273,7 +273,7 @@ func deleteMail(m email) {
 
 // handleLateMail handles mails that have been so late that they timed out
 func handleLateMail(m email) {
-	logDebug.Println("got late mail via %s; mail took %d ms", m.configname, milliseconds(m.tRecv.Sub(m.tSent)))
+	logDebug.Printf("got late mail via %s; mail took %d ms\n", m.configname, milliseconds(m.tRecv.Sub(m.tSent)))
 	lateMails.WithLabelValues(m.configname).Inc()
 	deleteMail(m)
 }
@@ -285,7 +285,7 @@ func probe(c smtpServerConfig, p payload) {
 	//send(c, string(p))
 	err := send(c, p.String())
 	if err != nil {
-		logWarn.Println("error sending probe-mail via %s: %s; skipping attempt", c.Name, err)
+		logWarn.Printf("error sending probe-mail via %s: %s; skipping attempt\n", c.Name, err)
 		mailSendFails.WithLabelValues(c.Name).Inc()
 		disposeToken <- p.token
 		return
@@ -367,7 +367,7 @@ func detectAndMuxMail(watcher *fsnotify.Watcher) {
 func fileClose(f *os.File) {
 	err := f.Close()
 	if err != nil {
-		logWarn.Println(err)
+		logWarn.Println("error when closing file:", err)
 	}
 }
 
@@ -407,7 +407,7 @@ func parseMail(path string) (email, error) {
 func watcherClose(w *fsnotify.Watcher) {
 	err := w.Close()
 	if err != nil {
-		logWarn.Println(err)
+		logWarn.Println("error when closing watcher:", err)
 	}
 }
 
@@ -465,7 +465,7 @@ func main() {
 		logDebug.Println("adding path to watcher:", c.Detectiondir)
 		errAdd := fswatcher.Add(c.Detectiondir) // deduplication is done within fsnotify
 		if errAdd != nil {
-			logWarn.Println(errAdd)
+			logWarn.Printf("error adding filesystem-watcher to %s: %s\n", c.Detectiondir, errAdd)
 		}
 	}
 
