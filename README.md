@@ -29,6 +29,7 @@ The following metrics are exported, for each metric there is one instance per pr
     # actually build and run
     git clone https://github.com/cherti/mailexporter.git
     cd mailexporter
+    go get ./...
     go build mailexporter.go
     ./mailexporter
 
