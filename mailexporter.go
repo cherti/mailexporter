@@ -174,6 +174,14 @@ var lastMailDeliverDuration = prometheus.NewGaugeVec(
 	[]string{"configname"},
 )
 
+var lastSendDuration = prometheus.NewGaugeVec(
+	prometheus.GaugeOpts{
+		Name: "mail_last_send_duration",
+		Help: "duration (in ms) of last valid mail handover to external SMTP-server",
+	},
+	[]string{"configname"},
+)
+
 var lateMails = prometheus.NewCounterVec(
 	prometheus.CounterOpts{
 		Name: "mail_late_mails",
@@ -217,6 +225,7 @@ func init() {
 	prometheus.MustRegister(lastMailDeliverTime)
 	prometheus.MustRegister(lateMails)
 	prometheus.MustRegister(lastMailDeliverDuration)
+	prometheus.MustRegister(lastSendDuration)
 	prometheus.MustRegister(mailDeliverDurations)
 	prometheus.MustRegister(mailSendFails)
 }
@@ -249,7 +258,15 @@ func send(c smtpServerConfig, msg string) error {
 		a = smtp.PlainAuth("", c.Login, c.Passphrase, c.Server)
 	}
 
-	return smtp.SendMail(c.Server+":"+c.Port, a, c.From, []string{c.To}, []byte(fullmail))
+	t1 := time.Now()
+	err := smtp.SendMail(c.Server+":"+c.Port, a, c.From, []string{c.To}, []byte(fullmail))
+	t2 := time.Now()
+	diff := t2.Sub(t1)
+
+	sendDuration := float64(milliseconds(diff))
+	lastSendDuration.WithLabelValues(c.Name).Set(sendDuration)
+
+	return err
 }
 
 // generateToken returns a random string to pad the send mail with for identifying
