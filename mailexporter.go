@@ -198,27 +198,31 @@ var mailSendFails = prometheus.NewCounterVec(
 	[]string{"configname"},
 )
 
-var mailDeliverDurations = prometheus.NewHistogramVec(
-	prometheus.HistogramOpts{
-		Name:    "mail_deliver_durations",
-		Help:    "durations (in ms) of mail delivery",
-		Buckets: histBuckets(100e3, 50),
-	},
-	[]string{"configname"},
+var (
+	// mail_deliver_durations is linearly bucketed for low roundtrip-times and exponential for higher ones, to
+	// inexpensively catch really all late-comers. Therefore we first build the linear part of the buckets and
+	// afterwards we build larger buckets in an exponential fashion. Both are combined in the declaration of
+	// mailDeliverDurations.
+
+	histogramStart float64   = 50
+	linSpacing     float64   = 50
+	linBucketCount int       = 100
+	linBuckets     []float64 = prometheus.LinearBuckets(histogramStart, linSpacing, linBucketCount)
+
+	expFactor      float64   = 1.012
+	expAreaStart   float64   = linBuckets[linBucketCount-1] * expFactor
+	expBucketCount int       = 350
+	expBuckets     []float64 = prometheus.ExponentialBuckets(expAreaStart, expFactor, expBucketCount)
+
+	mailDeliverDurations = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "mail_deliver_durations",
+			Help:    "durations (in ms) of mail delivery",
+			Buckets: append(linBuckets, expBuckets...),
+		},
+		[]string{"configname"},
+	)
 )
-
-// histBuckets returns a linearly spaced []float64 to be used as Buckets in a prometheus.Histogram.
-func histBuckets(upperBound float64, binSize float64) []float64 {
-	bins := int(upperBound) / int(binSize)
-
-	buckets := make([]float64, bins)
-	binBorder := binSize
-	for i := 0; i < bins; i++ {
-		buckets[i] = binBorder
-		binBorder += binSize
-	}
-	return buckets
-}
 
 func init() {
 	prometheus.MustRegister(deliverOk)
