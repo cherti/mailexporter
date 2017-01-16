@@ -176,7 +176,7 @@ var deliverOk = prometheus.NewGaugeVec(
 var lastMailDeliverTime = prometheus.NewGaugeVec(
 	prometheus.GaugeOpts{
 		Name: "mail_last_deliver_time",
-		Help: "timestamp (in s) of detection of last correctly received testmail",
+		Help: "unix-timestamp of detection of last correctly received mailprobe",
 	},
 	[]string{"configname"},
 )
@@ -203,20 +203,20 @@ var (
 	// afterwards we build larger buckets in an exponential fashion. Both are combined in the declaration of
 	// mailDeliverDurations.
 
-	delDurHistogramStart float64   = 50
-	delDurLinSpacing     float64   = 50
-	delDurLinBucketCount int       = 100
+	delDurHistogramStart float64   = 0.25
+	delDurLinSpacing     float64   = 0.25
+	delDurLinBucketCount int       = 20
 	delDurLinBuckets     []float64 = prometheus.LinearBuckets(delDurHistogramStart, delDurLinSpacing, delDurLinBucketCount)
 
-	delDurExpFactor      float64   = 1.012
+	delDurExpFactor      float64   = 1.11
 	delDurExpAreaStart   float64   = delDurLinBuckets[delDurLinBucketCount-1] * delDurExpFactor
-	delDurExpBucketCount int       = 350
+	delDurExpBucketCount int       = 35
 	delDurExpBuckets     []float64 = prometheus.ExponentialBuckets(delDurExpAreaStart, delDurExpFactor, delDurExpBucketCount)
 
 	deliverDurationHist = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
-			Name:    "mail_deliver_durations",
-			Help:    "durations (in ms) of mail delivery",
+			Name:    "mail_deliver_durations_seconds",
+			Help:    "durations of mail delivery",
 			Buckets: append(delDurLinBuckets, delDurExpBuckets...),
 		},
 		[]string{"configname"},
@@ -224,8 +224,8 @@ var (
 
 	deliverDurationGauge = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
-			Name: "mail_last_deliver_duration",
-			Help: "duration (in ms) of delivery of last correctly received testmail",
+			Name: "mail_last_deliver_duration_seconds",
+			Help: "duration of delivery of last correctly received mailprobe",
 		},
 		[]string{"configname"},
 	)
@@ -236,20 +236,20 @@ var (
 var (
 	// same game for last_send_duration as for last_deliver_duration above
 
-	sendDurHistogramStart float64   = 10
-	sendDurLinSpacing     float64   = 10
-	sendDurLinBucketCount int       = 50
+	sendDurHistogramStart float64   = 0.1
+	sendDurLinSpacing     float64   = 0.1
+	sendDurLinBucketCount int       = 10
 	sendDurLinBuckets     []float64 = prometheus.LinearBuckets(sendDurHistogramStart, sendDurLinSpacing, sendDurLinBucketCount)
 
-	sendDurExpFactor      float64   = 1.025
+	sendDurExpFactor      float64   = 1.3
 	sendDurExpAreaStart   float64   = sendDurLinBuckets[sendDurLinBucketCount-1] * sendDurExpFactor
-	sendDurExpBucketCount int       = 50
+	sendDurExpBucketCount int       = 25
 	sendDurExpBuckets     []float64 = prometheus.ExponentialBuckets(sendDurExpAreaStart, sendDurExpFactor, sendDurExpBucketCount)
 
 	sendDurationHist = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
-			Name:    "mail_send_durations",
-			Help:    "durations (in ms) of valid mail handovers to exernal SMTP-servers",
+			Name:    "mail_send_durations_seconds",
+			Help:    "durations of valid mail handovers to exernal SMTP-servers",
 			Buckets: append(sendDurLinBuckets, sendDurExpBuckets...),
 		},
 		[]string{"configname"},
@@ -257,8 +257,8 @@ var (
 
 	sendDurationGauge = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
-			Name: "mail_last_send_duration",
-			Help: "duration (in ms) of last valid mail handover to external SMTP-server",
+			Name: "mail_last_send_duration_seconds",
+			Help: "duration of last valid mail handover to external SMTP-server",
 		},
 		[]string{"configname"},
 	)
@@ -274,10 +274,6 @@ func init() {
 	mailDeliverDuration.register()
 	mailSendDuration.register()
 
-}
-
-func milliseconds(d time.Duration) int64 {
-	return d.Nanoseconds() / int64(time.Millisecond)
 }
 
 // parseConfig parses configuration file and tells us if we are ready to rumble.
@@ -309,7 +305,7 @@ func send(c smtpServerConfig, msg string) error {
 	t2 := time.Now()
 	diff := t2.Sub(t1)
 
-	sendDuration := float64(milliseconds(diff))
+	sendDuration := float64(diff.Seconds())
 	mailSendDuration.process(c.Name, sendDuration)
 
 	return err
@@ -342,7 +338,7 @@ func deleteMailIfEnabled(m email) {
 
 // handleLateMail handles mails that have been so late that they timed out
 func handleLateMail(m email) {
-	logDebug.Printf("got late mail via %s; mail took %d ms\n", m.configname, milliseconds(m.tRecv.Sub(m.tSent)))
+	logDebug.Printf("got late mail via %s; mail took %d\n", m.configname, m.tRecv.Sub(m.tSent))
 	lateMails.WithLabelValues(m.configname).Inc()
 	deleteMailIfEnabled(m)
 }
@@ -393,9 +389,9 @@ func monitor(c smtpServerConfig) {
 func classifyMailMetrics(foundMail email) {
 	// timestamps are in nanoseconds
 	// last_mail_deliver_time shall be standard unix-timestamp
-	// last_mail_deliver_duration shall be milliseconds for higher resolution
+	// last_mail_deliver_duration shall be seconds (SI-Units)
 	deliverTime := float64(foundMail.tRecv.Unix())
-	deliverDuration := float64(milliseconds(foundMail.tRecv.Sub(foundMail.tSent)))
+	deliverDuration := foundMail.tRecv.Sub(foundMail.tSent).Seconds()
 	lastMailDeliverTime.WithLabelValues(foundMail.configname).Set(deliverTime)
 	mailDeliverDuration.process(foundMail.configname, deliverDuration)
 }
