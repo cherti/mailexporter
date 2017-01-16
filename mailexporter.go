@@ -12,6 +12,7 @@ import (
 	"net/mail"
 	"net/smtp"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -122,6 +123,7 @@ type smtpServerConfig struct {
 
 var (
 	// cli-flags
+	version          = flag.Bool("version", false, "Print version information")
 	confPath         = flag.String("config.file", "/etc/mailexporter.conf", "Mailexporter configuration file to use.")
 	logTimestamps    = flag.Bool("log.timestamps", false, "Enable timestamps for logging to stdout.")
 	webListenAddress = flag.String("web.listen-address", ":9225", "Colon separated address and port to listen on for the telemetry.")
@@ -477,6 +479,12 @@ func watcherClose(w *fsnotify.Watcher) {
 
 func main() {
 	flag.Parse()
+	if *version {
+		logInfo.Println("Prometheus-Mailexporter")
+		logInfo.Printf(" :: version %s", "1.0")
+		logInfo.Printf(" :: Go-version: %s", runtime.Version())
+		os.Exit(0)
+	}
 
 	// handle log-verbosity
 	if *verbosity < 1 {
