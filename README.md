@@ -12,20 +12,19 @@ Success is indicated by a value of `1` of the metric `mail_deliver_success`, fai
 The following metrics are exported, for each metric there is one instance per probe-config, distinguishable by label `configname` (which contains the value of the `Name`-field of the respective configuration section).
 
 * `mail_deliver_success`: indicates if last successfully sent mail was delivered in time (`1` if so, `0` if not)
-* `mail_last_deliver_time`: last time a mail was successfully delivered to the system as a unix timestamp (in seconds)
-* `mail_last_deliver_duration`: time it took for the last received mail to be delivered (doesn't matter if timed out or not) in milliseconds
-* `mail_late_mails`: number of probing-mails being received after their respective timeout
-* `mail_deliver_durations`: histogram of `last_mail_deliver_duration` with 50ms-buckets up to 100s currently (to observe even massively late mails)
 * `mail_send_fails`: indicates the number of failed attempts to send a probing mail via the specified SMTP-Server
+* `mail_last_send_duration_seconds`: duration of last valid mail handover to external SMTP-server in seconds
+* `mail_send_durations_seconds`: histogram of gauge `mail_last_send_duration_seconds`
+* `mail_last_deliver_duration_seconds`: time it took for the last received mail to be delivered (doesn't matter if timed out or not) in seconds
+* `mail_deliver_durations_seconds`: histogram of gauge `last_mail_deliver_duration`
+* `mail_last_deliver_time`: last time a mail was successfully delivered to the system as a unix timestamp (in seconds)
+* `mail_late_mails`: number of probing-mails being received after their respective timeout
+
 
 ## Building and running
 
 ### manually
 
-    # get dependencies
-    go get -u "github.com/prometheus/client_golang/prometheus"
-    go get -u "gopkg.in/yaml.v2"
-    
     # actually build and run
     git clone https://github.com/cherti/mailexporter.git
     cd mailexporter
@@ -42,27 +41,24 @@ The following metrics are exported, for each metric there is one instance per pr
 
 ## Configuration
 
-By defaut, mailexporter reads `/etc/prometheus/mailexporter.conf` as its configfile. This can be changed via the command line flag `-config-file`.
+By defaut, mailexporter reads `/etc/mailexporter.conf` as its configfile. This can be changed via the command line flag `-config-file`.
 The Mailexporter doesn't support TLS and auth natively. This is left to tools intended for that.
 Nevertheless you are encouraged to use it with TLS and auth, e.g. by binding to `-web.listen-address=127.0.0.1:8083`
 in combination with an HTTP-reverseproxy capable of doing so (for example nginx, Apache or [AuthGuard](https://github.com/cherti/authguard)).
 
-Also, by default, it uses HTTP basic auth on the metrics-endpoint as well as TLS.
-If desired, both can be disabled by using the `-auth=false` or the `-tls=false` commandline flags respectively.
-
 The address mailexporter should listen on is specified by the commandline-flag `-web.listen-address` in the format `<address>:<port>`.
-Furthermore you can adjust the HTTP endpoint for metrics by setting the `web.metrics-endpoint`-flag, which defaults to `/metrics`.
+Furthermore you can adjust the HTTP endpoint for metrics by setting the `web.telemetry-path`-flag, which defaults to `/metrics`.
 
-Further configuration is done via the configuration file. See `mailexporter.conf` for further info.
+Further configuration is done via the configuration file. See `mailexporter.conf` or `man mailexporter.conf` for further info.
 
 
 ### mailexporter.conf
 
 The configuration is done in [YAML](www.yaml.org).
 
-For detailed info see `mailexporter.conf` as the provided example configuration.
+For detailed info see `mailexporter.conf` as the provided example configuration or `man mailexporter.conf`, if the manpage is installed on your system.
 
-By default, mailexporter looks for a configuration file ./mailexporter.conf. This can be changed via `-config-file=/path/to/file` as cli-flag.
+By default, mailexporter looks for a configuration file `/etc/mailexporter.conf`. This can be changed via `-config-file=/path/to/file` as cli-flag.
 
 
 ## License
