@@ -150,6 +150,21 @@ type email struct {
 
 // prometheus-instrumentation
 
+type durationMetric struct {
+	gauge *prometheus.GaugeVec
+	hist  *prometheus.HistogramVec
+}
+
+func (m durationMetric) process(configname string, value float64) {
+	m.gauge.WithLabelValues(configname).Set(value)
+	m.hist.WithLabelValues(configname).Observe(value)
+}
+
+func (m durationMetric) register() {
+	prometheus.MustRegister(m.gauge)
+	prometheus.MustRegister(m.hist)
+}
+
 var deliverOk = prometheus.NewGaugeVec(
 	prometheus.GaugeOpts{
 		Name: "mail_deliver_success",
@@ -162,22 +177,6 @@ var lastMailDeliverTime = prometheus.NewGaugeVec(
 	prometheus.GaugeOpts{
 		Name: "mail_last_deliver_time",
 		Help: "timestamp (in s) of detection of last correctly received testmail",
-	},
-	[]string{"configname"},
-)
-
-var lastMailDeliverDuration = prometheus.NewGaugeVec(
-	prometheus.GaugeOpts{
-		Name: "mail_last_deliver_duration",
-		Help: "duration (in ms) of delivery of last correctly received testmail",
-	},
-	[]string{"configname"},
-)
-
-var lastSendDuration = prometheus.NewGaugeVec(
-	prometheus.GaugeOpts{
-		Name: "mail_last_send_duration",
-		Help: "duration (in ms) of last valid mail handover to external SMTP-server",
 	},
 	[]string{"configname"},
 )
@@ -204,34 +203,77 @@ var (
 	// afterwards we build larger buckets in an exponential fashion. Both are combined in the declaration of
 	// mailDeliverDurations.
 
-	histogramStart float64   = 50
-	linSpacing     float64   = 50
-	linBucketCount int       = 100
-	linBuckets     []float64 = prometheus.LinearBuckets(histogramStart, linSpacing, linBucketCount)
+	delDurHistogramStart float64   = 50
+	delDurLinSpacing     float64   = 50
+	delDurLinBucketCount int       = 100
+	delDurLinBuckets     []float64 = prometheus.LinearBuckets(delDurHistogramStart, delDurLinSpacing, delDurLinBucketCount)
 
-	expFactor      float64   = 1.012
-	expAreaStart   float64   = linBuckets[linBucketCount-1] * expFactor
-	expBucketCount int       = 350
-	expBuckets     []float64 = prometheus.ExponentialBuckets(expAreaStart, expFactor, expBucketCount)
+	delDurExpFactor      float64   = 1.012
+	delDurExpAreaStart   float64   = delDurLinBuckets[delDurLinBucketCount-1] * delDurExpFactor
+	delDurExpBucketCount int       = 350
+	delDurExpBuckets     []float64 = prometheus.ExponentialBuckets(delDurExpAreaStart, delDurExpFactor, delDurExpBucketCount)
 
-	mailDeliverDurations = prometheus.NewHistogramVec(
+	deliverDurationHist = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Name:    "mail_deliver_durations",
 			Help:    "durations (in ms) of mail delivery",
-			Buckets: append(linBuckets, expBuckets...),
+			Buckets: append(delDurLinBuckets, delDurExpBuckets...),
 		},
 		[]string{"configname"},
 	)
+
+	deliverDurationGauge = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "mail_last_deliver_duration",
+			Help: "duration (in ms) of delivery of last correctly received testmail",
+		},
+		[]string{"configname"},
+	)
+
+	mailDeliverDuration = durationMetric{deliverDurationGauge, deliverDurationHist}
+)
+
+var (
+	// same game for last_send_duration as for last_deliver_duration above
+
+	sendDurHistogramStart float64   = 10
+	sendDurLinSpacing     float64   = 10
+	sendDurLinBucketCount int       = 50
+	sendDurLinBuckets     []float64 = prometheus.LinearBuckets(sendDurHistogramStart, sendDurLinSpacing, sendDurLinBucketCount)
+
+	sendDurExpFactor      float64   = 1.025
+	sendDurExpAreaStart   float64   = sendDurLinBuckets[sendDurLinBucketCount-1] * sendDurExpFactor
+	sendDurExpBucketCount int       = 50
+	sendDurExpBuckets     []float64 = prometheus.ExponentialBuckets(sendDurExpAreaStart, sendDurExpFactor, sendDurExpBucketCount)
+
+	sendDurationHist = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "mail_send_durations",
+			Help:    "durations (in ms) of valid mail handovers to exernal SMTP-servers",
+			Buckets: append(sendDurLinBuckets, sendDurExpBuckets...),
+		},
+		[]string{"configname"},
+	)
+
+	sendDurationGauge = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "mail_last_send_duration",
+			Help: "duration (in ms) of last valid mail handover to external SMTP-server",
+		},
+		[]string{"configname"},
+	)
+
+	mailSendDuration = durationMetric{sendDurationGauge, sendDurationHist}
 )
 
 func init() {
 	prometheus.MustRegister(deliverOk)
 	prometheus.MustRegister(lastMailDeliverTime)
 	prometheus.MustRegister(lateMails)
-	prometheus.MustRegister(lastMailDeliverDuration)
-	prometheus.MustRegister(lastSendDuration)
-	prometheus.MustRegister(mailDeliverDurations)
 	prometheus.MustRegister(mailSendFails)
+	mailDeliverDuration.register()
+	mailSendDuration.register()
+
 }
 
 func milliseconds(d time.Duration) int64 {
@@ -268,7 +310,7 @@ func send(c smtpServerConfig, msg string) error {
 	diff := t2.Sub(t1)
 
 	sendDuration := float64(milliseconds(diff))
-	lastSendDuration.WithLabelValues(c.Name).Set(sendDuration)
+	mailSendDuration.process(c.Name, sendDuration)
 
 	return err
 }
@@ -355,8 +397,7 @@ func classifyMailMetrics(foundMail email) {
 	deliverTime := float64(foundMail.tRecv.Unix())
 	deliverDuration := float64(milliseconds(foundMail.tRecv.Sub(foundMail.tSent)))
 	lastMailDeliverTime.WithLabelValues(foundMail.configname).Set(deliverTime)
-	lastMailDeliverDuration.WithLabelValues(foundMail.configname).Set(deliverDuration)
-	mailDeliverDurations.WithLabelValues(foundMail.configname).Observe(deliverDuration)
+	mailDeliverDuration.process(foundMail.configname, deliverDuration)
 }
 
 // detectAndMuxMail monitors Detectiondirs, reports mails that come in to the goroutine they belong to
