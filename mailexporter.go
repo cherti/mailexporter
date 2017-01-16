@@ -122,10 +122,10 @@ type smtpServerConfig struct {
 
 var (
 	// cli-flags
-	confPath         = flag.String("config.file", "/etc/mailexporter.conf", "config-file to use")
-	logTimestamps    = flag.Bool("config.log-timestamps", false, "Log with timestamps")
-	webListenAddress = flag.String("web.listen-address", ":9225", "colon separated address and port mailexporter shall listen on")
-	httpEndpoint     = flag.String("web.metrics-endpoint", "/metrics", "HTTP endpoint for serving metrics")
+	confPath         = flag.String("config.file", "/etc/mailexporter.conf", "Mailexporter configuration file to use.")
+	logTimestamps    = flag.Bool("log.timestamps", false, "Enable timestamps for logging to stdout.")
+	webListenAddress = flag.String("web.listen-address", ":9225", "Colon separated address and port to listen on for the telemetry.")
+	httpEndpoint     = flag.String("web.telemetry-path", "/metrics", "Path under which to expose metrics.")
 	verbosity        = flag.Int("v", 1, "verbosity; higher means more output")
 
 	// errors
