@@ -185,7 +185,7 @@ var lastMailDeliverTime = prometheus.NewGaugeVec(
 
 var lateMails = prometheus.NewCounterVec(
 	prometheus.CounterOpts{
-		Name: "mail_late_mails",
+		Name: "mail_late_mails_total",
 		Help: "number of probing-mails received after their respective timeout",
 	},
 	[]string{"configname"},
@@ -193,7 +193,7 @@ var lateMails = prometheus.NewCounterVec(
 
 var mailSendFails = prometheus.NewCounterVec(
 	prometheus.CounterOpts{
-		Name: "mail_send_fails",
+		Name: "mail_send_fails_total",
 		Help: "number of failed attempts to send a probing mail via specified SMTP-server",
 	},
 	[]string{"configname"},
@@ -481,7 +481,7 @@ func main() {
 	flag.Parse()
 	if *version {
 		logInfo.Println("Prometheus-Mailexporter")
-		logInfo.Printf(" :: version %s", "1.0")
+		logInfo.Printf(" :: version %s", "dev")
 		logInfo.Printf(" :: Go-version: %s", runtime.Version())
 		os.Exit(0)
 	}
