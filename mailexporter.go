@@ -293,7 +293,7 @@ func send(c smtpServerConfig, msg string) error {
 	logDebug.Println("sending mail")
 	fromheader := "From: " + c.From
 	subjectheader := "Subject: " + "mailexporter-probe"
-	fullmail := fromheader + "\n" + subjectheader + "\n\n" + msg
+	fullmail := fromheader + "\r\n" + subjectheader + "\r\n\r\n" + msg
 
 	var a smtp.Auth
 	if c.Login == "" && c.Passphrase == "" { // if login and passphrase are left empty, skip authentication
