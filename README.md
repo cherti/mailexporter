@@ -63,4 +63,4 @@ By default, mailexporter looks for a configuration file `/etc/mailexporter.conf`
 
 ## License
 
-This works is released under the [GNU General Public License v3](https://www.gnu.org/licenses/gpl-3.0.txt). You can find a copy of this license at https://www.gnu.org/licenses/gpl-3.0.txt.
+This works is released under the [GNU General Public License v3](https://www.gnu.org/licenses/gpl-3.0.txt). You can find a copy of this license in the `LICENSE` file or at https://www.gnu.org/licenses/gpl-3.0.txt.
