@@ -12,13 +12,13 @@ Success is indicated by a value of `1` of the metric `mail_deliver_success`, fai
 The following metrics are exported, for each metric there is one instance per probe-config, distinguishable by label `configname` (which contains the value of the `Name`-field of the respective configuration section).
 
 * `mail_deliver_success`: indicates if last successfully sent mail was delivered in time (`1` if so, `0` if not)
-* `mail_send_fails`: indicates the number of failed attempts to send a probing mail via the specified SMTP-Server
+* `mail_send_fails_total`: indicates the number of failed attempts to send a probing mail via the specified SMTP-Server
 * `mail_last_send_duration_seconds`: duration of last valid mail handover to external SMTP-server in seconds
 * `mail_send_durations_seconds`: histogram of gauge `mail_last_send_duration_seconds`
 * `mail_last_deliver_duration_seconds`: time it took for the last received mail to be delivered (doesn't matter if timed out or not) in seconds
 * `mail_deliver_durations_seconds`: histogram of gauge `last_mail_deliver_duration`
 * `mail_last_deliver_time`: last time a mail was successfully delivered to the system as a unix timestamp (in seconds)
-* `mail_late_mails`: number of probing-mails being received after their respective timeout
+* `mail_late_mails_total`: number of probing-mails being received after their respective timeout
 
 
 ## Building and running
