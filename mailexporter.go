@@ -294,6 +294,15 @@ func send(c smtpServerConfig, msg string) error {
 	fullmail := "From: " + c.From + "\r\n"
 	fullmail += "Subject: " + "mailexporter-probe" + "\r\n"
 
+	addrParts := strings.Split(c.From, "@")
+	if len(addrParts) > 1 {
+		fullmail += "Message-Id: " + msg + "@" + addrParts[1] + "\r\n"
+	} else {
+		fullmail += "Message-Id: " + msg + "-" + c.From + "\r\n"
+	}
+
+	fullmail += "Date: " + time.Now().String() + "\r\n"
+
 	fullmail += "\r\n" + msg
 
 	var a smtp.Auth
