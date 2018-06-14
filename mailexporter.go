@@ -302,7 +302,7 @@ func send(c smtpServerConfig, msg string) error {
 		fullmail += "Message-Id: " + msg + "-" + c.From + "\r\n"
 	}
 
-	fullmail += "Date: " + time.Now().String() + "\r\n"
+	fullmail += "Date: " + time.Now().Format(time.RFC3339) + "\r\n"
 
 	fullmail += "\r\n" + msg
 
