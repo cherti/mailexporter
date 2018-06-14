@@ -297,9 +297,9 @@ func send(c smtpServerConfig, msg string) error {
 
 	addrParts := strings.Split(c.From, "@")
 	if len(addrParts) > 1 {
-		fullmail += "Message-Id: " + msg + "@" + addrParts[1] + "\r\n"
+		fullmail += "<Message-Id: " + msg + "@" + addrParts[1] + ">\r\n"
 	} else {
-		fullmail += "Message-Id: " + msg + "-" + c.From + "\r\n"
+		fullmail += "<Message-Id: " + msg + "-" + c.From + ">\r\n"
 	}
 
 	fullmail += "Date: " + time.Now().Format(time.RFC3339) + "\r\n"
