@@ -291,9 +291,10 @@ func parseConfig(r io.Reader) error {
 // send sends a probing-email over SMTP-server specified in config c to be waited for on the receiving side.
 func send(c smtpServerConfig, msg string) error {
 	logDebug.Println("sending mail")
-	fromheader := "From: " + c.From
-	subjectheader := "Subject: " + "mailexporter-probe"
-	fullmail := fromheader + "\r\n" + subjectheader + "\r\n\r\n" + msg
+	fullmail := "From: " + c.From + "\r\n"
+	fullmail += "Subject: " + "mailexporter-probe" + "\r\n"
+
+	fullmail += "\r\n" + msg
 
 	var a smtp.Auth
 	if c.Login == "" && c.Passphrase == "" { // if login and passphrase are left empty, skip authentication
