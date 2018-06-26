@@ -292,6 +292,7 @@ func parseConfig(r io.Reader) error {
 func send(c smtpServerConfig, msg string) error {
 	logDebug.Println("sending mail")
 	fullmail := "From: " + c.From + "\r\n"
+	fullmail += "To: " + c.To + "\r\n"
 	fullmail += "Subject: mailexporter-probe" + "\r\n"
 	fullmail += "Content-Type: text/plain" + "\r\n"
 
