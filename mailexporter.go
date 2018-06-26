@@ -288,6 +288,15 @@ func parseConfig(r io.Reader) error {
 	return yaml.Unmarshal(content, &globalconf)
 }
 
+func createMsgId(c smtpServerConfig, msg string) string {
+	addrParts := strings.Split(c.From, "@")
+	if len(addrParts) > 1 {
+		return msg + "@" + addrParts[1]
+	} else {
+		return msg + "-" + c.From
+	}
+}
+
 // send sends a probing-email over SMTP-server specified in config c to be waited for on the receiving side.
 func send(c smtpServerConfig, msg string) error {
 	logDebug.Println("sending mail")
@@ -295,13 +304,7 @@ func send(c smtpServerConfig, msg string) error {
 	fullmail += "To: " + c.To + "\r\n"
 	fullmail += "Subject: mailexporter-probe" + "\r\n"
 	fullmail += "Content-Type: text/plain" + "\r\n"
-
-	addrParts := strings.Split(c.From, "@")
-	if len(addrParts) > 1 {
-		fullmail += "Message-Id: <" + msg + "@" + addrParts[1] + ">\r\n"
-	} else {
-		fullmail += "Message-Id: <" + msg + "-" + c.From + ">\r\n"
-	}
+	fullmail += "Message-Id: <" + createMsgId(c, msg) + ">\r\n"
 
 	fullmail += "Date: " + time.Now().Format(time.RFC3339) + "\r\n"
 
