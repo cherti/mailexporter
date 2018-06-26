@@ -382,7 +382,7 @@ func probe(c smtpServerConfig, p payload) {
 		deleteMailIfEnabled(mail)
 
 	case <-timeout:
-		logDebug.Println("Getting mail timed out.")
+		logWarn.Println("Delivery-Timeout, Message-ID: " + createMsgId(c, p.String()))
 		deliverOk.WithLabelValues(c.Name).Set(0)
 	}
 
