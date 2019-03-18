@@ -39,9 +39,9 @@ var muxer = make(map[string]chan email)
 var disposeToken = make(chan string)
 
 type payload struct {
-	configname string
 	token      string
 	timestamp  int64
+	configname string
 }
 
 // newPayload composes a payload to be used in probing mails for identification consisting
@@ -53,14 +53,14 @@ func newPayload(confname string) payload {
 	token := generateToken(tokenLength)
 
 	//payload = strings.Join([]string{name, token, time.Now().UnixNano()}, "-")
-	p := payload{confname, token, time.Now().UnixNano()}
+	p := payload{token, time.Now().UnixNano(), confname}
 	logDebug.Println("composed payload:", p)
 
 	return p
 }
 
 func (p payload) String() string {
-	return strings.Join([]string{p.configname, p.token, p.timestring()}, "-")
+	return strings.Join([]string{p.token, p.timestring(), p.configname}, "-")
 }
 
 func (p payload) timestring() string {
@@ -72,21 +72,21 @@ func (p payload) timestring() string {
 func decomposePayload(input []byte) (payload, error) {
 	logDebug.Println("payload to decompose:", input)
 
-	decomp := strings.Split(string(input), "-")
+	decomp := strings.SplitN(string(input), "-", 3)
 	// is it correctly parsable?
 	if len(decomp) != 3 {
 		logDebug.Println("no fitting decomp")
 		return payload{}, errNotOurDept
 	}
 
-	extractedUnixTime, err := strconv.ParseInt(decomp[2], 10, 64)
+	extractedUnixTime, err := strconv.ParseInt(decomp[1], 10, 64)
 	// is the last one a unix-timestamp?
 	if err != nil {
 		logDebug.Println("unix-timestamp-parse-error")
 		return payload{}, errNotOurDept
 	}
 
-	return payload{decomp[0], decomp[1], extractedUnixTime}, nil
+	return payload{decomp[0], extractedUnixTime, decomp[2]}, nil
 }
 
 // holds a configuration of external server to send test mails
