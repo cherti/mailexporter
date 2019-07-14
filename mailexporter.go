@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"gopkg.in/fsnotify.v1"
 	"gopkg.in/yaml.v2"
 )
@@ -564,7 +565,7 @@ func main() {
 	}
 
 	log.Println("Starting HTTP-endpoint")
-	http.Handle(*httpEndpoint, prometheus.Handler())
+	http.Handle(*httpEndpoint, promhttp.Handler())
 
 	logError.Fatal(http.ListenAndServe(*webListenAddress, nil))
 }
