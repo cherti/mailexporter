@@ -36,7 +36,7 @@ const tokenChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ01234567
 // muxer is used to map probe-tokens to channels where the detection-goroutine should put the found mails.
 var muxer = make(map[string]chan email)
 
-// dispose token is used in probe to announce which tokens are no longer used for waiting for mails
+// disposeToken is used in probe to announce which tokens are no longer used for waiting for mails
 var disposeToken = make(chan string)
 
 type payload struct {
