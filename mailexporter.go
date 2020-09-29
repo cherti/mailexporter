@@ -315,7 +315,6 @@ func send(c smtpServerConfig, msg string) error {
 	if c.Login == "" && c.Passphrase == "" { // if login and passphrase are left empty, skip authentication
 		a = nil
 	} else {
-		log.Printf("login: %s, pass: %s", c.Login, c.Passphrase)
 		a = smtp.CRAMMD5Auth(c.Login, c.Passphrase)
 	}
 
