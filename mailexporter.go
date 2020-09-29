@@ -206,14 +206,14 @@ var (
 	// afterwards we build larger buckets in an exponential fashion. Both are combined in the declaration of
 	// mailDeliverDurations.
 
-	delDurHistogramStart float64   = 0.25
-	delDurLinSpacing     float64   = 0.25
-	delDurLinBucketCount int       = 20
+	delDurHistogramStart           = 0.25
+	delDurLinSpacing               = 0.25
+	delDurLinBucketCount           = 20
 	delDurLinBuckets     []float64 = prometheus.LinearBuckets(delDurHistogramStart, delDurLinSpacing, delDurLinBucketCount)
 
-	delDurExpFactor      float64   = 1.11
-	delDurExpAreaStart   float64   = delDurLinBuckets[delDurLinBucketCount-1] * delDurExpFactor
-	delDurExpBucketCount int       = 35
+	delDurExpFactor                = 1.11
+	delDurExpAreaStart             = delDurLinBuckets[delDurLinBucketCount-1] * delDurExpFactor
+	delDurExpBucketCount           = 35
 	delDurExpBuckets     []float64 = prometheus.ExponentialBuckets(delDurExpAreaStart, delDurExpFactor, delDurExpBucketCount)
 
 	deliverDurationHist = prometheus.NewHistogramVec(
@@ -239,14 +239,14 @@ var (
 var (
 	// same game for last_send_duration as for last_deliver_duration above
 
-	sendDurHistogramStart float64   = 0.1
-	sendDurLinSpacing     float64   = 0.1
-	sendDurLinBucketCount int       = 10
+	sendDurHistogramStart           = 0.1
+	sendDurLinSpacing               = 0.1
+	sendDurLinBucketCount           = 10
 	sendDurLinBuckets     []float64 = prometheus.LinearBuckets(sendDurHistogramStart, sendDurLinSpacing, sendDurLinBucketCount)
 
-	sendDurExpFactor      float64   = 1.3
-	sendDurExpAreaStart   float64   = sendDurLinBuckets[sendDurLinBucketCount-1] * sendDurExpFactor
-	sendDurExpBucketCount int       = 25
+	sendDurExpFactor                = 1.3
+	sendDurExpAreaStart             = sendDurLinBuckets[sendDurLinBucketCount-1] * sendDurExpFactor
+	sendDurExpBucketCount           = 25
 	sendDurExpBuckets     []float64 = prometheus.ExponentialBuckets(sendDurExpAreaStart, sendDurExpFactor, sendDurExpBucketCount)
 
 	sendDurationHist = prometheus.NewHistogramVec(
@@ -289,13 +289,13 @@ func parseConfig(r io.Reader) error {
 	return yaml.Unmarshal(content, &globalconf)
 }
 
-func createMsgId(c smtpServerConfig, msg string) string {
+func createMsgID(c smtpServerConfig, msg string) string {
 	addrParts := strings.Split(c.From, "@")
 	if len(addrParts) > 1 {
 		return msg + "@" + addrParts[1]
-	} else {
-		return msg + "-" + c.From
 	}
+
+	return msg + "-" + c.From
 }
 
 // send sends a probing-email over SMTP-server specified in config c to be waited for on the receiving side.
@@ -305,7 +305,7 @@ func send(c smtpServerConfig, msg string) error {
 	fullmail += "To: " + c.To + "\r\n"
 	fullmail += "Subject: mailexporter-probe" + "\r\n"
 	fullmail += "Content-Type: text/plain" + "\r\n"
-	fullmail += "Message-Id: <" + createMsgId(c, msg) + ">\r\n"
+	fullmail += "Message-Id: <" + createMsgID(c, msg) + ">\r\n"
 
 	fullmail += "Date: " + time.Now().Format(time.RFC3339) + "\r\n"
 
@@ -315,7 +315,8 @@ func send(c smtpServerConfig, msg string) error {
 	if c.Login == "" && c.Passphrase == "" { // if login and passphrase are left empty, skip authentication
 		a = nil
 	} else {
-		a = smtp.PlainAuth("", c.Login, c.Passphrase, c.Server)
+		log.Printf("login: %s, pass: %s", c.Login, c.Passphrase)
+		a = smtp.CRAMMD5Auth(c.Login, c.Passphrase)
 	}
 
 	t1 := time.Now()
@@ -383,7 +384,7 @@ func probe(c smtpServerConfig, p payload) {
 		deleteMailIfEnabled(mail)
 
 	case <-timeout:
-		logWarn.Println("Delivery-Timeout, Message-ID: " + createMsgId(c, p.String()))
+		logWarn.Println("Delivery-Timeout, Message-ID: " + createMsgID(c, p.String()))
 		deliverOk.WithLabelValues(c.Name).Set(0)
 	}
 
