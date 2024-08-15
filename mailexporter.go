@@ -459,13 +459,12 @@ func parseMail(path string) (email, error) {
 	t := time.Now()
 
 	// try parsing
-	f, err := os.Open(path)
+	b, err := os.ReadFile(path)
 	if err != nil {
 		return email{}, err
 	}
-	defer fileClose(f)
 
-	mail, err := mail.ReadMessage(io.LimitReader(f, 8192))
+	mail, err := mail.ReadMessage(bytes.NewReader(b))
 	if err != nil {
 		return email{}, err
 	}

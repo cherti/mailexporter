@@ -54,7 +54,7 @@ Further configuration is done via the configuration file. See `mailexporter.conf
 
 ### mailexporter.conf
 
-The configuration is done in [YAML](www.yaml.org).
+The configuration is done in [YAML](https://yaml.org).
 
 For detailed info see `mailexporter.conf` as the provided example configuration or `man mailexporter.conf`, if the manpage is installed on your system.
 
